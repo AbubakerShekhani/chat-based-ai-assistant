@@ -239,7 +239,7 @@ const sendMessage = async (): Promise<void> => {
       threadId: threadId.value,
     };
 
-    const response = await fetch("http://localhost:3000/chat", {
+    const response = await fetch("https://advocado-agent.vercel.app/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
@@ -318,7 +318,7 @@ const endChat = async () => {
   isEndingChat.value = true;
 
   try {
-    const response = await fetch("http://localhost:3000/thread/resolve", {
+    const response = await fetch("https://advocado-agent.vercel.app/thread/resolve", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -357,7 +357,7 @@ const submitFeedback = async (): Promise<void> => {
   isEndingChat.value = true;
   try {
     if (!threadId.value) return;
-    const response = await fetch("http://localhost:3000/thread/resolve", {
+    const response = await fetch("https://advocado-agent.vercel.app/thread/resolve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -411,6 +411,8 @@ const toggleChat = () => {
 onMounted(async () => {
   isClient.value = true;
   clientSideTheme.value = true; // Initialize from localStorage if available
+
+  // Initial chat state setup
   if (typeof localStorage !== "undefined") {
     threadId.value = localStorage.getItem("threadId"); // Handle chat window state
     const hadInteraction = localStorage.getItem("hadChatInteraction") === "true";
@@ -429,6 +431,7 @@ onMounted(async () => {
     }
   }
 
+  // Initialize with default welcome message if no messages exist
   if (messages.value.length === 0) {
     messages.value = [
       {
@@ -439,11 +442,12 @@ onMounted(async () => {
     ];
   }
 
+  // Load existing thread messages if available
   if (isClient.value && threadId.value) {
     isInitialLoading.value = true;
     try {
       const response = await fetch(
-        `http://localhost:3000/thread/listMessages?threadId=${threadId.value}`,
+        `https://advocado-agent.vercel.app/thread/listMessages?threadId=${threadId.value}`,
       );
       const messagesData = await response.json();
       if (messagesData && Array.isArray(messagesData)) {
@@ -457,9 +461,49 @@ onMounted(async () => {
       console.error("Error fetching thread messages:", error);
     } finally {
       isInitialLoading.value = false;
+      // After everything is loaded, ensure we scroll to bottom
+      await nextTick();
+      if (isChatOpen.value) {
+        scrollToBottom();
+      }
+    }
+  } else {
+    // If no thread messages to load, still scroll to bottom if chat is open
+    await nextTick();
+    if (isChatOpen.value) {
+      scrollToBottom();
     }
   }
 });
+
+// Watch for chat open state changes
+watch(isChatOpen, async newVal => {
+  if (newVal) {
+    await nextTick();
+    scrollToBottom();
+    // Focus the textarea when opening
+    nextTick(() => {
+      const textarea = document.querySelector("textarea");
+      if (textarea) {
+        textarea.focus();
+      }
+    });
+  }
+});
+
+// Watch messages for changes to sync to storage and scroll
+watch(
+  messages,
+  async () => {
+    if (!isClient.value) return;
+    localStorage.setItem("chatMessages", JSON.stringify(messages.value));
+    if (isChatOpen.value) {
+      await nextTick();
+      scrollToBottom();
+    }
+  },
+  { deep: true },
+);
 </script>
 
 <template>
