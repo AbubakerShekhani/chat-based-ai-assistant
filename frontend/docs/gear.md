@@ -30,3 +30,13 @@ features:
     title: Switchy
     details: eWeLink Sonoff Basic Switch
 ---
+
+<script setup lang="ts">
+import { defineAsyncComponent } from 'vue'
+
+const MiniChat = defineAsyncComponent(() => 
+  import('./components/MiniChat.vue')
+)
+</script>
+
+<MiniChat />
