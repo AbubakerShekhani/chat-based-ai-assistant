@@ -87,3 +87,13 @@ features:
     title: Cove AI
     details: Bring context to your content and sanity to your stack.
 ---
+
+<script setup lang="ts">
+import { defineAsyncComponent } from 'vue'
+
+const MiniChat = defineAsyncComponent(() => 
+  import('./components/MiniChat.vue')
+)
+</script>
+
+<MiniChat />

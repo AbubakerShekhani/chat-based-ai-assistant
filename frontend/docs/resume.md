@@ -6,6 +6,10 @@ onMounted(() => {
   isClient.value = true
 })
 
+const MiniChat = defineAsyncComponent(() => 
+  import('./components/MiniChat.vue')
+)
+
 const DownloadResumeButton = defineAsyncComponent({
   loader: () => import('./components/DownloadResume.vue'),
   loadingComponent: {
@@ -21,6 +25,8 @@ const DownloadResumeButton = defineAsyncComponent({
     <DownloadResumeButton filename="Stevanus SATRIA.pdf" />
   </ClientOnly>
 </div>
+
+<MiniChat />
 
 # STEVANUS SATRIA
 

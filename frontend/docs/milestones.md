@@ -1,6 +1,13 @@
 <script setup lang="ts">
+import { defineAsyncComponent } from 'vue'
 import Timeline from './components/Timeline.vue'
+
+const MiniChat = defineAsyncComponent(() => 
+  import('./components/MiniChat.vue')
+)
 </script>
+
+<MiniChat />
 
 <Timeline :items="[
   { time: 'Mar 2025', title: 'Promoted to Senior Product Manager', description: 'Finally made my first career big splash.', anchor: '2025' },

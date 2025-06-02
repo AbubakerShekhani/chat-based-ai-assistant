@@ -24,6 +24,16 @@ features:
     details: Primary Architecture Expertise
 ---
 
+<script setup lang="ts">
+import { defineAsyncComponent } from 'vue'
+
+const MiniChat = defineAsyncComponent(() => 
+  import('./components/MiniChat.vue')
+)
+</script>
+
+<MiniChat />
+
 ### Hi, I'm Steve 👋
 
 I'm a **product manager**, **frontend developer**, **avid cyclist**, and **casual pianist**.

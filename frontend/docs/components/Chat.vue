@@ -82,6 +82,16 @@ watch(userInput, () => {
   nextTick(resizeTextarea);
 });
 
+// Watch messages for changes to sync to storage
+watch(
+  messages,
+  () => {
+    if (!isClient.value) return;
+    localStorage.setItem("chatMessages", JSON.stringify(messages.value));
+  },
+  { deep: true },
+);
+
 // --- Theme ---
 const { isDark } = useData();
 const cssVars = computed(() => ({
@@ -258,7 +268,6 @@ const sendMessage = async (): Promise<void> => {
 
   // Add user message to chat
   messages.value.push(userMessage);
-
   // Within the sendMessage function, replace the first message handling with:
   // If this is the first actual message from the user, expand to full screen
   if (isFirstMessage && !isFirstMessageSent.value) {
@@ -281,6 +290,11 @@ const sendMessage = async (): Promise<void> => {
         );
       }
     }, 50);
+  }
+
+  // Track chat interaction for MiniChat sync
+  if (isClient.value) {
+    localStorage.setItem("hadChatInteraction", "true");
   }
 
   let currentAssistantContent = "";
@@ -391,6 +405,11 @@ const endChat = (): void => {
   if (!threadId.value) return;
   showFeedbackModal.value = true;
   feedback.value = null;
+
+  // Notify other components immediately that we're ending the chat
+  if (isClient.value) {
+    localStorage.setItem("chatEnding", "true");
+  }
 };
 
 const submitFeedback = async (): Promise<void> => {
@@ -505,6 +524,57 @@ const handleVisibilityChange = () => {
   }
 };
 
+// --- Storage event handler for cross-component synchronization ---
+const handleStorageChange = (event: StorageEvent) => {
+  if (!isClient.value) return;
+  // Handle chat ending notification
+  if (event.key === "chatEnding" && event.newValue === "true") {
+    // Another component is ending the chat, close our feedback modal if it's open
+    if (showFeedbackModal.value) {
+      showFeedbackModal.value = false;
+      feedback.value = null;
+    }
+  }
+
+  // Sync thread ID
+  if (event.key === "threadId") {
+    threadId.value = event.newValue;
+    if (!event.newValue) {
+      // Thread was ended in another component
+      messages.value = [
+        {
+          role: "assistant",
+          content: getRandomWittyMessage(),
+          timestamp: Date.now(),
+        },
+      ];
+      // Clean up the chatEnding flag
+      localStorage.removeItem("chatEnding");
+    }
+  }
+
+  // Sync messages
+  if (event.key === "chatMessages" && event.newValue) {
+    try {
+      const newMessages = JSON.parse(event.newValue);
+      if (Array.isArray(newMessages)) {
+        messages.value = newMessages;
+      }
+    } catch (error) {
+      console.error("Error parsing chat messages from storage:", error);
+    }
+  }
+};
+
+// Function to save messages to localStorage
+const saveMessagesToStorage = () => {
+  if (!isClient.value) return;
+  localStorage.setItem("chatMessages", JSON.stringify(messages.value));
+};
+
+// Watch messages for changes to sync to storage
+watch(messages, saveMessagesToStorage, { deep: true });
+
 // --- Initial Load ---
 onMounted(async () => {
   isClient.value = true;
@@ -512,10 +582,17 @@ onMounted(async () => {
 
   // Check if device is mobile
   isMobile.value = checkIfMobile();
-
   threadId.value = typeof localStorage !== "undefined" ? localStorage.getItem("threadId") : null;
-  // Render chat UI immediately
-  if (messages.value.length === 0) {
+  const storedMessages =
+    typeof localStorage !== "undefined" ? localStorage.getItem("chatMessages") : null;
+
+  if (storedMessages) {
+    try {
+      messages.value = JSON.parse(storedMessages);
+    } catch (error) {
+      console.error("Error parsing stored messages:", error);
+    }
+  } else if (messages.value.length === 0) {
     messages.value = [
       {
         role: "assistant",
@@ -533,30 +610,14 @@ onMounted(async () => {
         .then(messagesResponse => messagesResponse.json())
         .then(messagesData => {
           if (messagesData && Array.isArray(messagesData)) {
-            // Only prepend if user hasn't sent a new message yet
-            if (
-              messages.value.length === 1 &&
-              messages.value[0].role === "assistant" &&
-              messages.value[0].content.includes(
-                "Hi! What would you like to learn about Steve today?",
-              )
-            ) {
-              messages.value = messagesData.map((msg: Message) => ({
-                role: msg.role,
-                content: msg.content ? msg.content : "",
-                timestamp: Date.now(),
-              }));
-            } else {
-              // Merge past messages with any new ones
-              messages.value = [
-                ...messagesData.map(msg => ({
-                  role: msg.role,
-                  content: msg.content ? msg.content : "",
-                  timestamp: Date.now(),
-                })),
-                ...messages.value,
-              ];
-            }
+            const newMessages = messagesData.map((msg: Message) => ({
+              role: msg.role,
+              content: msg.content ? msg.content : "",
+              timestamp: Date.now(),
+            }));
+            messages.value = newMessages;
+            // Save to localStorage for cross-component sync
+            localStorage.setItem("chatMessages", JSON.stringify(messages.value));
 
             // If there are user messages, we've already had a conversation
             const hasUserMessages = messagesData.some((msg: Message) => msg.role === "user");
@@ -579,10 +640,9 @@ onMounted(async () => {
       if (savedHeight) chatHeight.value = parseInt(savedHeight);
     }
 
-    // Add window resize listener
+    // Add event listeners
     window.addEventListener("resize", handleWindowResize);
-
-    // Add visibility change listener for mobile
+    window.addEventListener("storage", handleStorageChange);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     // For iOS Safari, add additional scroll event handling
@@ -619,6 +679,7 @@ onMounted(async () => {
 // --- Clean up event listeners ---
 const cleanupEventListeners = () => {
   window.removeEventListener("resize", handleWindowResize);
+  window.removeEventListener("storage", handleStorageChange);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
   promptBarRef.value?.removeEventListener("scroll", updatePromptScrollButtons);
   if (inputRef.value) {
