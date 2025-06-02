@@ -239,7 +239,7 @@ const sendMessage = async (): Promise<void> => {
       threadId: threadId.value,
     };
 
-    const response = await fetch("https://advocado-agent.vercel.app/chat", {
+    const response = await fetch("http://localhost:3000/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
@@ -318,7 +318,7 @@ const endChat = async () => {
   isEndingChat.value = true;
 
   try {
-    const response = await fetch("https://advocado-agent.vercel.app/thread/resolve", {
+    const response = await fetch("http://localhost:3000/thread/resolve", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -357,7 +357,7 @@ const submitFeedback = async (): Promise<void> => {
   isEndingChat.value = true;
   try {
     if (!threadId.value) return;
-    const response = await fetch("https://advocado-agent.vercel.app/thread/resolve", {
+    const response = await fetch("http://localhost:3000/thread/resolve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -410,34 +410,15 @@ const toggleChat = () => {
 // --- Initial Load ---
 onMounted(async () => {
   isClient.value = true;
-  clientSideTheme.value = true;
-
-  // Initialize from localStorage if available
+  clientSideTheme.value = true; // Initialize from localStorage if available
   if (typeof localStorage !== "undefined") {
     threadId.value = localStorage.getItem("threadId"); // Handle chat window state
     const hadInteraction = localStorage.getItem("hadChatInteraction") === "true";
     const lastMiniChatState = localStorage.getItem("miniChatOpen");
-    const storedMessages = localStorage.getItem("chatMessages");
 
-    // Check for recent messages in chat
-    let hasRecentMessages = false;
-    if (storedMessages) {
-      try {
-        const parsedMessages = JSON.parse(storedMessages);
-        if (Array.isArray(parsedMessages) && parsedMessages.length > 0) {
-          // Look for messages in the last 5 minutes
-          const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
-          hasRecentMessages = parsedMessages.some(
-            msg => msg.timestamp && msg.timestamp > fiveMinutesAgo && msg.role === "user",
-          );
-        }
-      } catch (error) {
-        console.error("Error parsing stored messages:", error);
-      }
-    }
-
-    if (hadInteraction || hasRecentMessages) {
-      // If there was recent interaction in the main chat, keep mini chat open
+    // Only use hadInteraction to determine initial state
+    if (hadInteraction) {
+      // If there was interaction in the main chat, open mini chat
       isChatOpen.value = true;
       localStorage.setItem("miniChatOpen", "true");
       // Reset the interaction flag
@@ -462,7 +443,7 @@ onMounted(async () => {
     isInitialLoading.value = true;
     try {
       const response = await fetch(
-        `https://advocado-agent.vercel.app/thread/listMessages?threadId=${threadId.value}`,
+        `http://localhost:3000/thread/listMessages?threadId=${threadId.value}`,
       );
       const messagesData = await response.json();
       if (messagesData && Array.isArray(messagesData)) {
