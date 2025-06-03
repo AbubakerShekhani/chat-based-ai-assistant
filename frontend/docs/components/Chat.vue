@@ -426,13 +426,20 @@ const submitFeedback = async (): Promise<void> => {
       }),
     });
     if (!response.ok) throw new Error("Failed to end chat");
+
+    // Clear both threadId and chatMessages
     localStorage.removeItem("threadId");
+    localStorage.removeItem("chatMessages");
     threadId.value = null;
-    messages.value.push({
-      role: "assistant",
-      content: "Chat session has ended. Ask me anything to start a new conversation!",
-      timestamp: Date.now(),
-    });
+
+    // Reset to initial state
+    messages.value = [
+      {
+        role: "assistant",
+        content: "Hi! What would you like to learn about Steve today?",
+        timestamp: Date.now(),
+      },
+    ];
   } catch (error) {
     console.error("Error ending chat:", error);
     messages.value.push({
@@ -540,11 +547,11 @@ const handleStorageChange = (event: StorageEvent) => {
   if (event.key === "threadId") {
     threadId.value = event.newValue;
     if (!event.newValue) {
-      // Thread was ended in another component
+      // Thread was ended in another component, reset to initial state
       messages.value = [
         {
           role: "assistant",
-          content: getRandomWittyMessage(),
+          content: "Hi! What would you like to learn about Steve today?",
           timestamp: Date.now(),
         },
       ];
@@ -591,8 +598,17 @@ onMounted(async () => {
       messages.value = JSON.parse(storedMessages);
     } catch (error) {
       console.error("Error parsing stored messages:", error);
+      // If stored messages are corrupted, start fresh
+      messages.value = [
+        {
+          role: "assistant",
+          content: "Hi! What would you like to learn about Steve today?",
+          timestamp: Date.now(),
+        },
+      ];
     }
-  } else if (messages.value.length === 0) {
+  } else {
+    // No stored messages, start with welcome message
     messages.value = [
       {
         role: "assistant",
@@ -601,68 +617,79 @@ onMounted(async () => {
       },
     ];
   }
-  if (isClient.value) {
-    const existingThreadId = localStorage.getItem("threadId");
-    if (existingThreadId) {
-      // Start loading past messages in the background
-      isInitialLoading.value = true;
-      fetch(`https://advocado-agent.vercel.app/thread/listMessages?threadId=${existingThreadId}`)
-        .then(messagesResponse => messagesResponse.json())
-        .then(messagesData => {
-          if (messagesData && Array.isArray(messagesData)) {
-            const newMessages = messagesData.map((msg: Message) => ({
-              role: msg.role,
-              content: msg.content ? msg.content : "",
-              timestamp: Date.now(),
-            }));
-            messages.value = newMessages;
-            // Save to localStorage for cross-component sync
-            localStorage.setItem("chatMessages", JSON.stringify(messages.value));
 
-            // If there are user messages, we've already had a conversation
-            const hasUserMessages = messagesData.some((msg: Message) => msg.role === "user");
-            if (hasUserMessages) {
-              isFirstMessageSent.value = true;
-              // Use setTimeout to ensure the DOM has been updated
-              setTimeout(() => setFullHeightAndScroll(), 100);
-            }
+  // Only load from backend if we have BOTH threadId AND no stored messages
+  // This prevents loading when we already have the conversation in localStorage
+  if (isClient.value && threadId.value && !storedMessages) {
+    isInitialLoading.value = true;
+    try {
+      const messagesResponse = await fetch(
+        `https://advocado-agent.vercel.app/thread/listMessages?threadId=${threadId.value}`,
+      );
+
+      if (messagesResponse.ok) {
+        const messagesData = await messagesResponse.json();
+        if (messagesData && Array.isArray(messagesData)) {
+          const newMessages = messagesData.map((msg: Message) => ({
+            role: msg.role,
+            content: msg.content ? msg.content : "",
+            timestamp: Date.now(),
+          }));
+          messages.value = newMessages;
+          // Save to localStorage for cross-component sync
+          localStorage.setItem("chatMessages", JSON.stringify(messages.value));
+
+          // If there are user messages, we've already had a conversation
+          const hasUserMessages = messagesData.some((msg: Message) => msg.role === "user");
+          if (hasUserMessages) {
+            isFirstMessageSent.value = true;
+            // Use setTimeout to ensure the DOM has been updated
+            setTimeout(() => setFullHeightAndScroll(), 100);
           }
-        })
-        .catch(error => {
-          console.error("Error fetching thread messages:", error);
-        })
-        .finally(() => {
-          isInitialLoading.value = false;
-        });
-    }
-    if (chatWindowRef.value) {
-      const savedHeight = localStorage.getItem("chatHeight");
-      if (savedHeight) chatHeight.value = parseInt(savedHeight);
-    }
-
-    // Add event listeners
-    window.addEventListener("resize", handleWindowResize);
-    window.addEventListener("storage", handleStorageChange);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    // For iOS Safari, add additional scroll event handling
-    if (isMobile.value && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-      window.addEventListener("scroll", () => {
-        if (isFirstMessageSent.value) {
-          // Store the current scroll position in session storage
-          sessionStorage.setItem("chatScrollY", window.scrollY.toString());
         }
-      });
-
-      // If we have a stored position, try to restore it
-      const storedScrollY = sessionStorage.getItem("chatScrollY");
-      if (storedScrollY && isFirstMessageSent.value) {
-        setTimeout(() => {
-          window.scrollTo(0, parseInt(storedScrollY));
-        }, 100);
+      } else {
+        // Backend thread doesn't exist, clear the threadId
+        localStorage.removeItem("threadId");
+        threadId.value = null;
       }
+    } catch (error) {
+      console.error("Error fetching thread messages:", error);
+      // On error, clear the threadId to prevent future attempts
+      localStorage.removeItem("threadId");
+      threadId.value = null;
+    } finally {
+      isInitialLoading.value = false;
     }
   }
+
+  if (chatWindowRef.value) {
+    const savedHeight = localStorage.getItem("chatHeight");
+    if (savedHeight) chatHeight.value = parseInt(savedHeight);
+  }
+
+  // Add event listeners
+  window.addEventListener("resize", handleWindowResize);
+  window.addEventListener("storage", handleStorageChange);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+
+  // For iOS Safari, add additional scroll event handling
+  if (isMobile.value && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+    window.addEventListener("scroll", () => {
+      if (isFirstMessageSent.value) {
+        // Store the current scroll position in session storage
+        sessionStorage.setItem("chatScrollY", window.scrollY.toString());
+      }
+    });
+
+    // If we have a stored position, try to restore it
+    const storedScrollY = sessionStorage.getItem("chatScrollY");
+    if (storedScrollY && isFirstMessageSent.value) {
+      setTimeout(() => {
+        window.scrollTo(0, parseInt(storedScrollY));
+      }, 100);
+    }
+  }
+
   scrollToBottom();
   inputRef.value?.focus();
   nextTick(() => {
@@ -702,8 +729,6 @@ watch(
   },
   { deep: true },
 );
-
-// Remove empty watch on isDark
 </script>
 
 <template>
