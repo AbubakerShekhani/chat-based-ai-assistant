@@ -774,7 +774,7 @@ onUnmounted(() => {
             v-model="userInput"
             placeholder="Ask something about Steve..."
             :class="[
-              '!flex-1 !rounded-lg !p-2 !text-sm !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0',
+              '!flex-1 !rounded-lg !p-2 !text-sm !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0 mobile-textarea',
               clientSideTheme && isDark
                 ? '!bg-gray-800 !text-gray-100 !placeholder-gray-400'
                 : '!bg-gray-100 !text-gray-800 !placeholder-gray-500',
@@ -1009,5 +1009,15 @@ onUnmounted(() => {
   padding-left: 1rem !important;
   font-style: italic !important;
   margin: 0 !important;
+}
+
+/* Mobile textarea zoom prevention - keeps 14px but prevents zoom */
+@media screen and (max-width: 768px) {
+  .mobile-textarea {
+    font-size: 16px !important;
+    transform: scale(0.875);
+    transform-origin: left top;
+    width: calc(100% / 0.875);
+  }
 }
 </style>
