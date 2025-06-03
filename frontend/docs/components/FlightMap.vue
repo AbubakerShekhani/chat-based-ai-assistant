@@ -419,7 +419,7 @@ const simplifiedAirports = computed((): Airport[] => {
 // Calculate appropriate zoom levels based on data
 const zoomLevels = computed(() => {
   if (airports.value.length === 0) {
-    return { minZoom: 2, maxZoom: 18, initialZoom: 2 };
+    return { minZoom: 1, maxZoom: 18, initialZoom: 2 };
   }
 
   const lats = airports.value.map(a => a.lat);
@@ -436,7 +436,7 @@ const zoomLevels = computed(() => {
   if (maxSpread > 120) {
     // Global spread
     calculatedInitialZoom = 2;
-    minZoomOut = 2;
+    minZoomOut = 1;
   } else if (maxSpread > 60) {
     // Continental spread
     calculatedInitialZoom = 3;
@@ -702,7 +702,7 @@ onMounted((): void => {
 
     <!-- Statistics Panel -->
     <div
-      class="stats-panel absolute top-4 left-4 p-4 rounded-lg shadow-lg max-w-xs backdrop-blur-sm"
+      class="stats-panel"
       :class="[
         'border',
         isDark
@@ -721,7 +721,7 @@ onMounted((): void => {
 
     <!-- Legend -->
     <div
-      class="legend-panel absolute bottom-4 left-4 p-3 rounded-lg shadow-lg backdrop-blur-sm"
+      class="legend-panel"
       :class="[
         'border',
         isDark
@@ -832,10 +832,29 @@ onMounted((): void => {
 }
 
 .stats-panel {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  box-shadow:
+    0 10px 15px -3px rgb(0 0 0 / 0.1),
+    0 4px 6px -4px rgb(0 0 0 / 0.1);
+  max-width: 18rem;
+  backdrop-filter: blur(4px);
   z-index: 1000;
 }
 
 .legend-panel {
+  position: absolute;
+  bottom: 2.5rem;
+  right: 1rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  box-shadow:
+    0 10px 15px -3px rgb(0 0 0 / 0.1),
+    0 4px 6px -4px rgb(0 0 0 / 0.1);
+  backdrop-filter: blur(4px);
   z-index: 1000;
 }
 
@@ -975,9 +994,14 @@ onMounted((): void => {
     min-height: 350px;
   }
 
-  .stats-panel,
+  .stats-panel {
+    position: static;
+    margin: 1rem 0;
+    max-width: none;
+  }
+
   .legend-panel {
-    position: relative;
+    position: static;
     margin: 1rem 0;
     max-width: none;
   }
