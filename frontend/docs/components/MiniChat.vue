@@ -385,10 +385,39 @@ const handleStorageChange = (event: StorageEvent) => {
   }
 };
 
-// Function to save messages to localStorage
+// Function to save messages to localStorage - ONLY save real agent conversations
 const saveMessagesToStorage = () => {
   if (!isClient.value) return;
-  localStorage.setItem("chatMessages", JSON.stringify(messages.value));
+
+  // Filter out messages that shouldn't be saved:
+  // 1. Messages with witty error responses
+  // 2. User messages that triggered witty responses (failed sends)
+  const messagesToSave = messages.value.filter((msg, index) => {
+    // Check if this is a witty error message
+    const isWittyMessage =
+      msg.role === "assistant" &&
+      wittyMessages.some(wittyMsg => msg.content.includes(wittyMsg.split(" ")[0])); // Check first word
+
+    if (isWittyMessage) {
+      return false; // Don't save witty error messages
+    }
+
+    // Check if this user message is followed by a witty response
+    if (msg.role === "user" && index < messages.value.length - 1) {
+      const nextMessage = messages.value[index + 1];
+      const nextIsWitty =
+        nextMessage.role === "assistant" &&
+        wittyMessages.some(wittyMsg => nextMessage.content.includes(wittyMsg.split(" ")[0]));
+
+      if (nextIsWitty) {
+        return false; // Don't save user messages that triggered witty responses
+      }
+    }
+
+    return true; // Save all other messages
+  });
+
+  localStorage.setItem("chatMessages", JSON.stringify(messagesToSave));
 };
 
 // Watch messages for changes to sync to storage
@@ -423,12 +452,15 @@ watch(isChatOpen, async newVal => {
   }
 });
 
-// Watch messages for changes to sync to storage and scroll
+// Watch messages for changes to sync to storage and scroll - ONLY sync real agent conversations
 watch(
   messages,
   async () => {
     if (!isClient.value) return;
-    localStorage.setItem("chatMessages", JSON.stringify(messages.value));
+
+    // Use the smart filtering function instead of direct save
+    saveMessagesToStorage();
+
     if (isChatOpen.value) {
       await nextTick();
       scrollToBottom();
@@ -508,8 +540,8 @@ onMounted(async () => {
             content: msg.content ? msg.content : "",
             timestamp: Date.now(),
           }));
-          // Save to localStorage for cross-component sync
-          localStorage.setItem("chatMessages", JSON.stringify(messages.value));
+          // Save to localStorage for cross-component sync - these are real agent messages
+          saveMessagesToStorage();
         }
       } else {
         // Backend thread doesn't exist, clear the threadId
