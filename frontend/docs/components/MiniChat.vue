@@ -1,5 +1,9 @@
 <script lang="ts" setup>
-// Types
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
+import { marked } from "marked";
+import { useData } from "vitepress";
+
+// --- Enhanced Types ---
 interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
@@ -14,12 +18,36 @@ interface Message {
   timestamp?: number;
 }
 
-// Imports
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
-import { marked } from "marked";
-import { useData } from "vitepress";
+interface ChatRequest {
+  stream: boolean;
+  rawResponse: boolean;
+  messages: { role: string; content: string }[];
+  threadId?: string;
+}
 
-// Component state
+// --- Constants ---
+const WITTY_MESSAGES = [
+  "Oh my, looks like something is wrong with Advocado 🥑. You can [read about Steve here](/about) or try again later!",
+  "Oops! Advocado seems to have taken a little nap 😴. While you wait, why not [learn about Steve](/about)? Or try again in a moment!",
+  "Looks like Advocado is having a bad hair day! 🌪️ Try again soon, or [check out Steve's profile](/about)!",
+  "Advocado is feeling a bit under the weather today 🤒. Please try again later, or [read about Steve](/about)!",
+  "Advocado is currently doing some avocado yoga to recover 🧘‍♂️. [Browse Steve's info](/about) or try again in a bit!",
+  "Looks like Advocado spilled its guacamole! 🥑💦 While we clean up, [learn about Steve](/about) or try again later!",
+  "Advocado is currently on a quick coffee break ☕. [Read Steve's story](/about) or try again in a moment!",
+  "Looks like Advocado is having a moment... 🤔 Try again soon, or [discover more about Steve](/about)!",
+  "Advocado is practicing its avocado meditation 🧘‍♀️. Please try again later, or [explore Steve's background](/about)!",
+  "Looks like Advocado is doing some emergency guac maintenance! 🛠️ [Check out Steve's profile](/about) or try again in a bit!",
+] as const;
+
+const WELCOME_MESSAGE: ChatMessage = {
+  role: "assistant",
+  content: "Hi! What would you like to learn about Steve today?",
+  timestamp: Date.now(),
+};
+
+const API_BASE = "https://advocado-agent.vercel.app";
+
+// --- State ---
 const messages = ref<ChatMessage[]>([]);
 const loading = ref(false);
 const isInitialLoading = ref(false);
@@ -32,60 +60,13 @@ const threadId = ref<string | null>(null);
 const isChatOpen = ref(false);
 const userInput = ref("");
 
-// Computed properties
-const hasOngoingThread = computed(() => !!threadId.value);
-
-// Witty messages for chat endings - ALIGNED with main chat
-const wittyMessages = [
-  "Oh my, looks like something is wrong with Advocado 🥑. You can [read about Steve here](/about) or try again later!",
-  "Oops! Advocado seems to have taken a little nap 😴. While you wait, why not [learn about Steve](/about)? Or try again in a moment!",
-  "Looks like Advocado is having a bad hair day! 🌪️ Try again soon, or [check out Steve's profile](/about)!",
-  "Advocado is feeling a bit under the weather today 🤒. Please try again later, or [read about Steve](/about)!",
-  "Advocado is currently doing some avocado yoga to recover 🧘‍♂️. [Browse Steve's info](/about) or try again in a bit!",
-  "Looks like Advocado spilled its guacamole! 🥑💦 While we clean up, [learn about Steve](/about) or try again later!",
-  "Advocado is currently on a quick coffee break ☕. [Read Steve's story](/about) or try again in a moment!",
-  "Looks like Advocado is having a moment... 🤔 Try again soon, or [discover more about Steve](/about)!",
-  "Advocado is practicing its avocado meditation 🧘‍♀️. Please try again later, or [explore Steve's background](/about)!",
-  "Looks like Advocado is doing some emergency guac maintenance! 🛠️ [Check out Steve's profile](/about) or try again in a bit!",
-];
-
-const getRandomWittyMessage = () => {
-  return wittyMessages[Math.floor(Math.random() * wittyMessages.length)];
-};
-
 // --- DOM Refs ---
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const chatContainerRef = ref<HTMLDivElement | null>(null);
 
-// --- Message Input Handling ---
-const handleKeyDown = (e: KeyboardEvent) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    if (userInput.value.trim()) {
-      sendMessage();
-    }
-  }
-};
-
-// Auto-resize textarea as content grows
-const resizeTextarea = () => {
-  if (!inputRef.value) return;
-
-  // Reset height to auto first to get the correct scrollHeight
-  inputRef.value.style.height = "auto";
-
-  // Set new height based on scrollHeight (with a max height)
-  const newHeight = Math.min(inputRef.value.scrollHeight, 100);
-  inputRef.value.style.height = `${newHeight}px`;
-};
-
-// Watch for input changes to auto-resize
-watch(userInput, () => {
-  nextTick(resizeTextarea);
-});
-
-// --- Theme ---
+// --- Theme & Computed ---
 const { isDark } = useData();
+
 const cssVars = computed(() => ({
   "--scrollbar-thumb": clientSideTheme.value && isDark.value ? "#4a5568" : "#cbd5e0",
   "--scrollbar-thumb-hover": clientSideTheme.value && isDark.value ? "#2d3748" : "#a0aec0",
@@ -96,12 +77,14 @@ const cssVars = computed(() => ({
   "--blockquote-border-color": clientSideTheme.value && isDark.value ? "#4a5568" : "#cbd5e0",
 }));
 
+const hasOngoingThread = computed(() => !!threadId.value);
+
 // --- Utility Functions ---
+const getRandomWittyMessage = (): string =>
+  WITTY_MESSAGES[Math.floor(Math.random() * WITTY_MESSAGES.length)];
+
 const formatTime = (timestamp: number): string =>
-  new Date(timestamp).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 const parseMarkdown = (content: string): string | Promise<string> => marked.parse(content);
 
@@ -109,11 +92,8 @@ const scrollToBottom = async (): Promise<void> => {
   await nextTick();
   if (!chatContainerRef.value) return;
 
-  // Use requestAnimationFrame for smoother scrolling
   requestAnimationFrame(() => {
     if (!chatContainerRef.value) return;
-
-    // Check if we're already at the bottom to avoid unnecessary scrolling
     const isAtBottom =
       chatContainerRef.value.scrollHeight - chatContainerRef.value.scrollTop <=
       chatContainerRef.value.clientHeight + 50;
@@ -124,50 +104,138 @@ const scrollToBottom = async (): Promise<void> => {
   });
 };
 
-// --- Message Handling ---
+const resizeTextarea = (): void => {
+  if (!inputRef.value) return;
+  inputRef.value.style.height = "auto";
+  const newHeight = Math.min(inputRef.value.scrollHeight, 100);
+  inputRef.value.style.height = `${newHeight}px`;
+};
+
+// --- Storage Functions ---
+const isWittyMessage = (msg: ChatMessage, index: number): boolean => {
+  // Check if this is a witty error message
+  if (
+    msg.role === "assistant" &&
+    WITTY_MESSAGES.some(wittyMsg => msg.content.includes(wittyMsg.split(" ")[0]))
+  ) {
+    return true;
+  }
+
+  // Check if this user message is followed by a witty response
+  if (msg.role === "user" && index < messages.value.length - 1) {
+    const nextMessage = messages.value[index + 1];
+    return (
+      nextMessage.role === "assistant" &&
+      WITTY_MESSAGES.some(wittyMsg => nextMessage.content.includes(wittyMsg.split(" ")[0]))
+    );
+  }
+
+  return false;
+};
+
+const saveMessagesToStorage = (): void => {
+  if (!isClient.value) return;
+  const messagesToSave = messages.value.filter((msg, index) => !isWittyMessage(msg, index));
+  localStorage.setItem("chatMessages", JSON.stringify(messagesToSave));
+};
+
+// --- Event Handlers ---
+const handleKeyDown = (e: KeyboardEvent): void => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    if (userInput.value.trim()) sendMessage();
+  }
+};
+
+const handleStorageChange = (event: StorageEvent): void => {
+  if (!isClient.value) return;
+
+  switch (event.key) {
+    case "miniChatOpen":
+      isChatOpen.value = event.newValue === "true";
+      break;
+    case "chatMessages":
+      try {
+        const newMessages = JSON.parse(event.newValue || "[]");
+        if (Array.isArray(newMessages)) {
+          const hasNewUserMessages = newMessages.some(
+            (msg: Message) =>
+              msg.role === "user" &&
+              !messages.value.some(
+                existingMsg =>
+                  existingMsg.role === msg.role &&
+                  existingMsg.content === msg.content &&
+                  existingMsg.timestamp === msg.timestamp,
+              ),
+          );
+          if (hasNewUserMessages) {
+            isChatOpen.value = true;
+            localStorage.setItem("miniChatOpen", "true");
+          }
+          messages.value = newMessages;
+        }
+      } catch (error) {
+        console.error("Error parsing chat messages from storage:", error);
+      }
+      break;
+    case "hadChatInteraction":
+      if (event.newValue === "true") {
+        isChatOpen.value = true;
+        localStorage.setItem("miniChatOpen", "true");
+      }
+      break;
+    case "chatEnding":
+      if (event.newValue === "true" && showFeedbackModal.value) {
+        showFeedbackModal.value = false;
+        feedback.value = null;
+      }
+      break;
+    case "threadId":
+      threadId.value = event.newValue;
+      if (!event.newValue) {
+        messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
+        localStorage.removeItem("chatEnding");
+      }
+      break;
+  }
+};
+
+// --- API Functions ---
 const sendMessage = async (): Promise<void> => {
   if (!userInput.value.trim()) return;
 
-  // Store user message and mark interaction
-  const userMessage = {
-    role: "user" as Role,
+  const userMessage: ChatMessage = {
+    role: "user",
     content: userInput.value,
     timestamp: Date.now(),
   };
 
   messages.value.push(userMessage);
-  if (isClient.value) {
-    localStorage.setItem("hadChatInteraction", "true");
-  }
+  if (isClient.value) localStorage.setItem("hadChatInteraction", "true");
+
   let currentAssistantContent = "";
   let assistantMessageAdded = false;
   loading.value = true;
 
+  const originalInput = userInput.value;
+  userInput.value = "";
+
   try {
-    const requestBody: {
-      stream: boolean;
-      rawResponse: boolean;
-      messages: { role: string; content: string }[];
-      threadId?: string;
-    } = {
+    const requestBody: ChatRequest = {
       stream: true,
       rawResponse: true,
-      messages: [{ role: "user", content: userInput.value }],
+      messages: [{ role: "user", content: originalInput }],
     };
 
     if (threadId.value) requestBody.threadId = threadId.value;
 
-    const response = await fetch("https://advocado-agent.vercel.app/chat", {
+    const response = await fetch(`${API_BASE}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
     });
 
-    // Handle non-200 responses
-    if (!response.ok) {
-      throw new Error(`Server responded with status: ${response.status}`);
-    }
-
+    if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
     if (!response.body) throw new Error("No response body");
 
     const threadIdHeader = response.headers.get("lb-thread-id");
@@ -184,6 +252,7 @@ const sendMessage = async (): Promise<void> => {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
@@ -195,11 +264,7 @@ const sendMessage = async (): Promise<void> => {
           const delta = parsed.choices[0]?.delta;
           if (delta?.content) {
             if (!assistantMessageAdded) {
-              messages.value.push({
-                role: "assistant",
-                content: "",
-                timestamp: Date.now(),
-              });
+              messages.value.push({ role: "assistant", content: "", timestamp: Date.now() });
               assistantMessageAdded = true;
             }
             currentAssistantContent += delta.content;
@@ -215,7 +280,6 @@ const sendMessage = async (): Promise<void> => {
   } catch (error) {
     console.error("Error during streaming:", error);
 
-    // Add assistant message with witty error if not already added
     if (!assistantMessageAdded) {
       messages.value.push({
         role: "assistant",
@@ -223,66 +287,43 @@ const sendMessage = async (): Promise<void> => {
         timestamp: Date.now(),
       });
     } else if (currentAssistantContent.trim() === "") {
-      // If assistant message was added but no content was received
       messages.value[messages.value.length - 1].content = getRandomWittyMessage();
     }
 
-    // Ensure the message is visible
     messages.value = [...messages.value];
     await scrollToBottom();
   } finally {
     loading.value = false;
-    userInput.value = "";
-    // Reset textarea height
-    if (inputRef.value) {
-      inputRef.value.style.height = "auto";
-    }
+    if (inputRef.value) inputRef.value.style.height = "auto";
     inputRef.value?.focus();
     await scrollToBottom();
   }
 };
 
-// --- End Chat & Feedback Modal ---
 const endChat = (): void => {
-  if (isEndingChat.value || showFeedbackModal.value) return;
-  if (!threadId.value) return;
+  if (isEndingChat.value || showFeedbackModal.value || !threadId.value) return;
   showFeedbackModal.value = true;
   feedback.value = null;
-
-  // Notify other components immediately that we're ending the chat
-  if (isClient.value) {
-    localStorage.setItem("chatEnding", "true");
-  }
+  if (isClient.value) localStorage.setItem("chatEnding", "true");
 };
 
 const submitFeedback = async (): Promise<void> => {
-  if (!feedback.value || isEndingChat.value) return;
+  if (!feedback.value || isEndingChat.value || !threadId.value) return;
+
   isEndingChat.value = true;
   try {
-    if (!threadId.value) return;
-    const response = await fetch("https://advocado-agent.vercel.app/thread/resolve", {
+    const response = await fetch(`${API_BASE}/thread/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        threadId: threadId.value,
-        feedback: feedback.value,
-      }),
+      body: JSON.stringify({ threadId: threadId.value, feedback: feedback.value }),
     });
+
     if (!response.ok) throw new Error("Failed to end chat");
 
-    // Clear both threadId and chatMessages
     localStorage.removeItem("threadId");
     localStorage.removeItem("chatMessages");
     threadId.value = null;
-
-    // Reset to initial state
-    messages.value = [
-      {
-        role: "assistant",
-        content: "Hi! What would you like to learn about Steve today?",
-        timestamp: Date.now(),
-      },
-    ];
+    messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
   } catch (error) {
     console.error("Error ending chat:", error);
     messages.value.push({
@@ -302,165 +343,31 @@ const closeFeedbackModal = (): void => {
   feedback.value = null;
 };
 
-// Storage event handler for cross-component synchronization
-const handleStorageChange = (event: StorageEvent) => {
-  if (!isClient.value) return;
-
-  // Handle mini chat state
-  if (event.key === "miniChatOpen") {
-    isChatOpen.value = event.newValue === "true";
-  }
-
-  // Handle chat interaction state
-  if (event.key === "chatMessages") {
-    try {
-      const newMessages = JSON.parse(event.newValue || "[]");
-      if (Array.isArray(newMessages)) {
-        // Check if there are any new user messages
-        const hasNewUserMessages = newMessages.some(
-          (msg: Message) =>
-            msg.role === "user" &&
-            !messages.value.some(
-              existingMsg =>
-                existingMsg.role === msg.role &&
-                existingMsg.content === msg.content &&
-                existingMsg.timestamp === msg.timestamp,
-            ),
-        );
-        if (hasNewUserMessages) {
-          isChatOpen.value = true;
-          localStorage.setItem("miniChatOpen", "true");
-        }
-        messages.value = newMessages;
-      }
-    } catch (error) {
-      console.error("Error parsing chat messages from storage:", error);
-    }
-  }
-
-  // Handle chat interaction flag
-  if (event.key === "hadChatInteraction") {
-    if (event.newValue === "true") {
-      isChatOpen.value = true;
-      localStorage.setItem("miniChatOpen", "true");
-    }
-  }
-
-  // Handle chat ending notification
-  if (event.key === "chatEnding" && event.newValue === "true") {
-    // Another component is ending the chat, close our feedback modal if it's open
-    if (showFeedbackModal.value) {
-      showFeedbackModal.value = false;
-      feedback.value = null;
-    }
-  }
-
-  // Sync thread ID
-  if (event.key === "threadId") {
-    threadId.value = event.newValue;
-    if (!event.newValue) {
-      // Thread was ended in another component
-      messages.value = [
-        {
-          role: "assistant",
-          content: "Hi! What would you like to learn about Steve today?",
-          timestamp: Date.now(),
-        },
-      ];
-      // Clean up the chatEnding flag
-      localStorage.removeItem("chatEnding");
-    }
-  }
-
-  // Sync messages
-  if (event.key === "chatMessages" && event.newValue) {
-    try {
-      const newMessages = JSON.parse(event.newValue);
-      if (Array.isArray(newMessages)) {
-        messages.value = newMessages;
-      }
-    } catch (error) {
-      console.error("Error parsing chat messages from storage:", error);
-    }
-  }
-};
-
-// Function to save messages to localStorage - ONLY save real agent conversations
-const saveMessagesToStorage = () => {
-  if (!isClient.value) return;
-
-  // Filter out messages that shouldn't be saved:
-  // 1. Messages with witty error responses
-  // 2. User messages that triggered witty responses (failed sends)
-  const messagesToSave = messages.value.filter((msg, index) => {
-    // Check if this is a witty error message
-    const isWittyMessage =
-      msg.role === "assistant" &&
-      wittyMessages.some(wittyMsg => msg.content.includes(wittyMsg.split(" ")[0])); // Check first word
-
-    if (isWittyMessage) {
-      return false; // Don't save witty error messages
-    }
-
-    // Check if this user message is followed by a witty response
-    if (msg.role === "user" && index < messages.value.length - 1) {
-      const nextMessage = messages.value[index + 1];
-      const nextIsWitty =
-        nextMessage.role === "assistant" &&
-        wittyMessages.some(wittyMsg => nextMessage.content.includes(wittyMsg.split(" ")[0]));
-
-      if (nextIsWitty) {
-        return false; // Don't save user messages that triggered witty responses
-      }
-    }
-
-    return true; // Save all other messages
-  });
-
-  localStorage.setItem("chatMessages", JSON.stringify(messagesToSave));
-};
-
-// Watch messages for changes to sync to storage
-watch(messages, saveMessagesToStorage, { deep: true });
-
-const toggleChat = () => {
+const toggleChat = (): void => {
   isChatOpen.value = !isChatOpen.value;
-  if (isClient.value) {
-    localStorage.setItem("miniChatOpen", isChatOpen.value.toString());
-  }
+  if (isClient.value) localStorage.setItem("miniChatOpen", isChatOpen.value.toString());
   if (isChatOpen.value) {
-    nextTick(() => {
-      if (inputRef.value) {
-        inputRef.value.focus();
-      }
-    });
+    nextTick(() => inputRef.value?.focus());
   }
 };
 
 // --- Watchers ---
-// Watch for chat open state changes
+watch(userInput, () => nextTick(resizeTextarea));
+watch(messages, saveMessagesToStorage, { deep: true });
+
 watch(isChatOpen, async newVal => {
   if (newVal) {
     await nextTick();
     scrollToBottom();
-    // Focus the textarea when opening
-    nextTick(() => {
-      if (inputRef.value) {
-        inputRef.value.focus();
-      }
-    });
+    nextTick(() => inputRef.value?.focus());
   }
 });
 
-// Watch messages for changes to sync to storage and scroll - ONLY sync real agent conversations
 watch(
   messages,
   async () => {
     if (!isClient.value) return;
-
-    // Use the smart filtering function instead of direct save
     saveMessagesToStorage();
-
     if (isChatOpen.value) {
       await nextTick();
       scrollToBottom();
@@ -469,107 +376,71 @@ watch(
   { deep: true },
 );
 
-// --- Initial Load ---
+// --- Lifecycle ---
 onMounted(async () => {
   isClient.value = true;
   clientSideTheme.value = true;
 
-  // Load existing thread and messages
-  threadId.value = typeof localStorage !== "undefined" ? localStorage.getItem("threadId") : null;
-  const storedMessages =
-    typeof localStorage !== "undefined" ? localStorage.getItem("chatMessages") : null;
+  threadId.value = localStorage.getItem("threadId");
+  const storedMessages = localStorage.getItem("chatMessages");
 
   if (storedMessages) {
     try {
       messages.value = JSON.parse(storedMessages);
     } catch (error) {
       console.error("Error parsing stored messages:", error);
-      // If stored messages are corrupted, start fresh
-      messages.value = [
-        {
-          role: "assistant",
-          content: "Hi! What would you like to learn about Steve today?",
-          timestamp: Date.now(),
-        },
-      ];
+      messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
     }
   } else {
-    // No stored messages, start with welcome message
-    messages.value = [
-      {
-        role: "assistant",
-        content: "Hi! What would you like to learn about Steve today?",
-        timestamp: Date.now(),
-      },
-    ];
+    messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
   }
 
   // Initial chat state setup
-  if (typeof localStorage !== "undefined") {
-    // Handle chat window state
-    const hadInteraction = localStorage.getItem("hadChatInteraction") === "true";
-    const lastMiniChatState = localStorage.getItem("miniChatOpen");
+  const hadInteraction = localStorage.getItem("hadChatInteraction") === "true";
+  const lastMiniChatState = localStorage.getItem("miniChatOpen");
 
-    // Only use hadInteraction to determine initial state
-    if (hadInteraction) {
-      // If there was interaction in the main chat, open mini chat
-      isChatOpen.value = true;
-      localStorage.setItem("miniChatOpen", "true");
-      // Reset the interaction flag
-      localStorage.removeItem("hadChatInteraction");
-    } else if (lastMiniChatState !== null) {
-      // Otherwise respect the last mini chat state
-      isChatOpen.value = lastMiniChatState === "true";
-    }
+  if (hadInteraction) {
+    isChatOpen.value = true;
+    localStorage.setItem("miniChatOpen", "true");
+    localStorage.removeItem("hadChatInteraction");
+  } else if (lastMiniChatState !== null) {
+    isChatOpen.value = lastMiniChatState === "true";
   }
 
-  // Only load from backend if we have BOTH threadId AND no stored messages
-  // This prevents loading when we already have the conversation in localStorage
-  if (isClient.value && threadId.value && !storedMessages) {
+  // Only load from backend if we have threadId but no stored messages
+  if (threadId.value && !storedMessages) {
     isInitialLoading.value = true;
     try {
-      const response = await fetch(
-        `https://advocado-agent.vercel.app/thread/listMessages?threadId=${threadId.value}`,
-      );
+      const response = await fetch(`${API_BASE}/thread/listMessages?threadId=${threadId.value}`);
 
       if (response.ok) {
         const messagesData = await response.json();
         if (messagesData && Array.isArray(messagesData)) {
           messages.value = messagesData.map((msg: Message) => ({
             role: msg.role,
-            content: msg.content ? msg.content : "",
+            content: msg.content || "",
             timestamp: Date.now(),
           }));
-          // Save to localStorage for cross-component sync - these are real agent messages
           saveMessagesToStorage();
         }
       } else {
-        // Backend thread doesn't exist, clear the threadId
         localStorage.removeItem("threadId");
         threadId.value = null;
       }
     } catch (error) {
       console.error("Error fetching thread messages:", error);
-      // On error, clear the threadId to prevent future attempts
       localStorage.removeItem("threadId");
       threadId.value = null;
     } finally {
       isInitialLoading.value = false;
-      // After everything is loaded, ensure we scroll to bottom
       await nextTick();
-      if (isChatOpen.value) {
-        scrollToBottom();
-      }
+      if (isChatOpen.value) scrollToBottom();
     }
   } else {
-    // If no thread messages to load, still scroll to bottom if chat is open
     await nextTick();
-    if (isChatOpen.value) {
-      scrollToBottom();
-    }
+    if (isChatOpen.value) scrollToBottom();
   }
 
-  // Add storage event listener
   window.addEventListener("storage", handleStorageChange);
 });
 
@@ -588,6 +459,7 @@ onUnmounted(() => {
     >
       <img src="/advocado.webp" alt="Advocado" class="!w-8 !h-8 !rounded-full" />
     </button>
+
     <!-- Mini Chat Window -->
     <div
       v-else
@@ -597,7 +469,7 @@ onUnmounted(() => {
         '!border dark:!border-gray-700 !flex !flex-col',
       ]"
     >
-      <!-- Overlay for initial loading - ALIGNED with main chat -->
+      <!-- Loading Overlay -->
       <div v-if="isInitialLoading" class="chat-loading-overlay">
         <div class="chat-loading-content">
           <div
@@ -691,8 +563,9 @@ onUnmounted(() => {
                       ? '!text-gray-400'
                       : '!text-gray-500',
                 ]"
-                >{{ msg.role === "user" ? "You" : "Advocado" }}</span
               >
+                {{ msg.role === "user" ? "You" : "Advocado" }}
+              </span>
               <span
                 v-if="msg.timestamp"
                 :class="[
@@ -703,8 +576,9 @@ onUnmounted(() => {
                       ? '!text-gray-400'
                       : '!text-gray-500',
                 ]"
-                >{{ formatTime(msg.timestamp) }}</span
               >
+                {{ formatTime(msg.timestamp) }}
+              </span>
             </div>
             <!-- eslint-disable vue/no-v-html -->
             <div
@@ -730,8 +604,9 @@ onUnmounted(() => {
                 :class="
                   clientSideTheme && isDark ? '!text-xs !text-gray-400' : '!text-xs !text-gray-500'
                 "
-                >Advocado</span
               >
+                Advocado
+              </span>
               <span
                 :class="
                   clientSideTheme && isDark
@@ -774,7 +649,7 @@ onUnmounted(() => {
             v-model="userInput"
             placeholder="Ask something about Steve..."
             :class="[
-              '!flex-1 !rounded-lg !p-2 !text-sm !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0',
+              '!flex-1 !rounded-lg !p-2 !text-sm !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0 mobile-textarea',
               clientSideTheme && isDark
                 ? '!bg-gray-800 !text-gray-100 !placeholder-gray-400'
                 : '!bg-gray-100 !text-gray-800 !placeholder-gray-500',
@@ -893,7 +768,6 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 4px;
 }
@@ -911,7 +785,6 @@ onUnmounted(() => {
   background: var(--scrollbar-track);
 }
 
-/* Overlay for initial loading - ALIGNED with main chat */
 .chat-loading-overlay {
   position: absolute;
   inset: 0;
@@ -935,7 +808,15 @@ onUnmounted(() => {
   gap: 0.75rem;
 }
 
-/* Markdown content styling */
+@media screen and (max-width: 768px) {
+  .mobile-textarea {
+    font-size: 16px !important;
+    transform: scale(0.875);
+    transform-origin: left top;
+    width: calc(100% / 0.875);
+  }
+}
+
 :deep(.markdown-content) {
   line-height: 1.4 !important;
 }

@@ -4,12 +4,54 @@ import { marked } from "marked";
 import { useData } from "vitepress";
 import { Message, Role } from "langbase";
 
-// --- Types ---
+// --- Enhanced Types ---
 interface ChatMessage {
   role: Role;
   content: string;
   timestamp?: number;
 }
+
+interface ResizeState {
+  startY: number;
+  startHeight: number;
+}
+
+interface ChatRequest {
+  stream: boolean;
+  rawResponse: boolean;
+  messages: { role: string; content: string }[];
+  threadId?: string;
+}
+
+// --- Constants ---
+const WITTY_ERROR_MESSAGES = [
+  "Oh my, looks like something is wrong with Advocado 🥑. You can [read about Steve here](/about) or try again later!",
+  "Oops! Advocado seems to have taken a little nap 😴. While you wait, why not [learn about Steve](/about)? Or try again in a moment!",
+  "Looks like Advocado is having a bad hair day! 🌪️ Try again soon, or [check out Steve's profile](/about)!",
+  "Advocado is feeling a bit under the weather today 🤒. Please try again later, or [read about Steve](/about)!",
+  "Advocado is currently doing some avocado yoga to recover 🧘‍♂️. [Browse Steve's info](/about) or try again in a bit!",
+  "Looks like Advocado spilled its guacamole! 🥑💦 While we clean up, [learn about Steve](/about) or try again later!",
+  "Advocado is currently on a quick coffee break ☕. [Read Steve's story](/about) or try again in a moment!",
+  "Looks like Advocado is having a moment... 🤔 Try again soon, or [discover more about Steve](/about)!",
+  "Advocado is practicing its avocado meditation 🧘‍♀️. Please try again later, or [explore Steve's background](/about)!",
+  "Looks like Advocado is doing some emergency guac maintenance! 🛠️ [Check out Steve's profile](/about) or try again in a bit!",
+] as const;
+
+const PROMPT_SUGGESTIONS = [
+  "Tell me about Steve's background",
+  "What are Steve's top skills?",
+  "Summarize Steve's work experience",
+  "Show me Steve's recent projects",
+  "How can I contact Steve?",
+] as const;
+
+const WELCOME_MESSAGE: ChatMessage = {
+  role: "assistant",
+  content: "Hi! What would you like to learn about Steve today?",
+  timestamp: Date.now(),
+};
+
+const API_BASE = "https://advocado-agent.vercel.app";
 
 // --- State ---
 const userInput = ref("");
@@ -24,105 +66,22 @@ const isEndingChat = ref(false);
 const showFeedbackModal = ref(false);
 const feedback = ref<"good" | "bad" | null>(null);
 const threadId = ref<string | null>(null);
-const promptBarRef = ref<HTMLDivElement | null>(null);
 const showLeftScroll = ref(false);
 const showRightScroll = ref(false);
-const isFirstMessageSent = ref(false); // Track if first message has been sent
-const isMobile = ref(false); // Track if the device is mobile
-
-// Add witty error messages
-const wittyErrorMessages = [
-  "Oh my, looks like something is wrong with Advocado 🥑. You can [read about Steve here](/about) or try again later!",
-  "Oops! Advocado seems to have taken a little nap 😴. While you wait, why not [learn about Steve](/about)? Or try again in a moment!",
-  "Looks like Advocado is having a bad hair day! 🌪️ Try again soon, or [check out Steve's profile](/about)!",
-  "Advocado is feeling a bit under the weather today 🤒. Please try again later, or [read about Steve](/about)!",
-  "Advocado is currently doing some avocado yoga to recover 🧘‍♂️. [Browse Steve's info](/about) or try again in a bit!",
-  "Looks like Advocado spilled its guacamole! 🥑💦 While we clean up, [learn about Steve](/about) or try again later!",
-  "Advocado is currently on a quick coffee break ☕. [Read Steve's story](/about) or try again in a moment!",
-  "Looks like Advocado is having a moment... 🤔 Try again soon, or [discover more about Steve](/about)!",
-  "Advocado is practicing its avocado meditation 🧘‍♀️. Please try again later, or [explore Steve's background](/about)!",
-  "Looks like Advocado is doing some emergency guac maintenance! 🛠️ [Check out Steve's profile](/about) or try again in a bit!",
-];
-
-// Function to get random witty message
-const getRandomWittyMessage = (): string => {
-  const randomIndex = Math.floor(Math.random() * wittyErrorMessages.length);
-  return wittyErrorMessages[randomIndex];
-};
+const isFirstMessageSent = ref(false);
+const isMobile = ref(false);
 
 // --- DOM Refs ---
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const chatContainerRef = ref<HTMLDivElement | null>(null);
 const chatWindowRef = ref<HTMLDivElement | null>(null);
+const promptBarRef = ref<HTMLDivElement | null>(null);
 
-// --- Message Input Handling ---
-const handleKeyDown = (e: KeyboardEvent) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    if (userInput.value.trim()) {
-      sendMessage();
-    }
-  }
-};
+const resizeState = ref<ResizeState>({ startY: 0, startHeight: 0 });
 
-// Auto-resize textarea as content grows
-const resizeTextarea = () => {
-  if (!inputRef.value) return;
-
-  // Reset height to auto first to get the correct scrollHeight
-  inputRef.value.style.height = "auto";
-
-  // Set new height based on scrollHeight (with a max height)
-  const newHeight = Math.min(inputRef.value.scrollHeight, 200);
-  inputRef.value.style.height = `${newHeight}px`;
-};
-
-// Watch for input changes to auto-resize
-watch(userInput, () => {
-  nextTick(resizeTextarea);
-});
-
-// Watch messages for changes to sync to storage - ONLY sync real agent conversations
-watch(
-  messages,
-  () => {
-    if (!isClient.value) return;
-
-    // Filter out messages that shouldn't be saved:
-    // 1. Messages with witty error responses
-    // 2. User messages that triggered witty responses (failed sends)
-    const messagesToSave = messages.value.filter((msg, index) => {
-      // Check if this is a witty error message
-      const isWittyMessage =
-        msg.role === "assistant" &&
-        wittyErrorMessages.some(wittyMsg => msg.content.includes(wittyMsg.split(" ")[0])); // Check first word
-
-      if (isWittyMessage) {
-        return false; // Don't save witty error messages
-      }
-
-      // Check if this user message is followed by a witty response
-      if (msg.role === "user" && index < messages.value.length - 1) {
-        const nextMessage = messages.value[index + 1];
-        const nextIsWitty =
-          nextMessage.role === "assistant" &&
-          wittyErrorMessages.some(wittyMsg => nextMessage.content.includes(wittyMsg.split(" ")[0]));
-
-        if (nextIsWitty) {
-          return false; // Don't save user messages that triggered witty responses
-        }
-      }
-
-      return true; // Save all other messages
-    });
-
-    localStorage.setItem("chatMessages", JSON.stringify(messagesToSave));
-  },
-  { deep: true },
-);
-
-// --- Theme ---
+// --- Theme & Computed ---
 const { isDark } = useData();
+
 const cssVars = computed(() => ({
   "--scrollbar-thumb": clientSideTheme.value && isDark.value ? "#4a5568" : "#cbd5e0",
   "--scrollbar-thumb-hover": clientSideTheme.value && isDark.value ? "#2d3748" : "#a0aec0",
@@ -133,27 +92,32 @@ const cssVars = computed(() => ({
   "--blockquote-border-color": clientSideTheme.value && isDark.value ? "#4a5568" : "#cbd5e0",
 }));
 
-// --- Computed ---
 const hasOngoingThread = computed(() => !!threadId.value);
 
 // --- Utility Functions ---
+const getRandomWittyMessage = (): string =>
+  WITTY_ERROR_MESSAGES[Math.floor(Math.random() * WITTY_ERROR_MESSAGES.length)];
+
 const formatTime = (timestamp: number): string =>
-  new Date(timestamp).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 const parseMarkdown = (content: string): string | Promise<string> => marked.parse(content);
+
+const checkIfMobile = (): boolean => {
+  if (typeof window === "undefined") return false;
+  return (
+    window.innerWidth < 768 ||
+    window.matchMedia("(pointer: coarse)").matches ||
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+  );
+};
 
 const scrollToBottom = async (): Promise<void> => {
   await nextTick();
   if (!chatContainerRef.value) return;
 
-  // Use requestAnimationFrame for smoother scrolling
   requestAnimationFrame(() => {
     if (!chatContainerRef.value) return;
-
-    // Check if we're already at the bottom to avoid unnecessary scrolling
     const isAtBottom =
       chatContainerRef.value.scrollHeight - chatContainerRef.value.scrollTop <=
       chatContainerRef.value.clientHeight + 50;
@@ -164,56 +128,11 @@ const scrollToBottom = async (): Promise<void> => {
   });
 };
 
-// Check if device is mobile
-const checkIfMobile = (): boolean => {
-  if (typeof window === "undefined") return false;
-  // Use both screen width and user agent for better detection
-  return (
-    window.innerWidth < 768 ||
-    window.matchMedia("(pointer: coarse)").matches ||
-    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-  );
-};
-
-// Set the chat window to full height and scroll to it
-const setFullHeightAndScroll = async (): Promise<void> => {
-  if (!isClient.value || !chatWindowRef.value) return;
-
-  // Calculate viewport height considering virtual keyboards on mobile
-  const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-
-  // Set chat height to viewport height with a small buffer for mobile
-  chatHeight.value = isMobile.value ? viewportHeight - 20 : viewportHeight;
-
-  // Save height to localStorage
-  localStorage.setItem("chatHeight", chatHeight.value.toString());
-
-  // For mobile devices, handle differently
-  if (isMobile.value) {
-    // Use requestAnimationFrame for smoother rendering
-    requestAnimationFrame(() => {
-      if (!chatWindowRef.value) return;
-      const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
-
-      window.scrollTo({
-        top: offsetTop,
-        behavior: "smooth",
-      });
-
-      // Additional scroll to bottom with a slight delay to ensure rendering
-      setTimeout(scrollToBottom, 150);
-    });
-  } else {
-    // Desktop behavior
-    await nextTick();
-    if (!chatWindowRef.value) return;
-    const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
-
-    window.scrollTo({
-      top: offsetTop,
-      behavior: "smooth",
-    });
-  }
+const resizeTextarea = (): void => {
+  if (!inputRef.value) return;
+  inputRef.value.style.height = "auto";
+  const newHeight = Math.min(inputRef.value.scrollHeight, 200);
+  inputRef.value.style.height = `${newHeight}px`;
 };
 
 const updatePromptScrollButtons = (): void => {
@@ -223,96 +142,193 @@ const updatePromptScrollButtons = (): void => {
   showRightScroll.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
 };
 
-// --- Chat Window Resize ---
-interface ResizeState {
-  startY: number;
-  startHeight: number;
-}
+// --- Storage Functions ---
+const isWittyMessage = (msg: ChatMessage, index: number): boolean => {
+  // Check if this is a witty error message
+  if (
+    msg.role === "assistant" &&
+    WITTY_ERROR_MESSAGES.some(wittyMsg => msg.content.includes(wittyMsg.split(" ")[0]))
+  ) {
+    return true;
+  }
 
-const resizeState = ref<ResizeState>({
-  startY: 0,
-  startHeight: 0,
-});
+  // Check if this user message is followed by a witty response
+  if (msg.role === "user" && index < messages.value.length - 1) {
+    const nextMessage = messages.value[index + 1];
+    return (
+      nextMessage.role === "assistant" &&
+      WITTY_ERROR_MESSAGES.some(wittyMsg => nextMessage.content.includes(wittyMsg.split(" ")[0]))
+    );
+  }
+
+  return false;
+};
+
+const saveMessagesToStorage = (): void => {
+  if (!isClient.value) return;
+  const messagesToSave = messages.value.filter((msg, index) => !isWittyMessage(msg, index));
+  localStorage.setItem("chatMessages", JSON.stringify(messagesToSave));
+};
+
+// --- Mobile & Resize Handlers ---
+const setFullHeightAndScroll = async (): Promise<void> => {
+  if (!isClient.value || !chatWindowRef.value) return;
+
+  const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  chatHeight.value = isMobile.value ? viewportHeight - 20 : viewportHeight;
+  localStorage.setItem("chatHeight", chatHeight.value.toString());
+
+  const scrollAction = () => {
+    if (!chatWindowRef.value) return;
+    const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
+    window.scrollTo({ top: offsetTop, behavior: "smooth" });
+    if (isMobile.value) setTimeout(scrollToBottom, 150);
+  };
+
+  if (isMobile.value) {
+    requestAnimationFrame(scrollAction);
+  } else {
+    await nextTick();
+    scrollAction();
+  }
+};
 
 const startResize = (e: MouseEvent | TouchEvent): void => {
   e.preventDefault();
   isDragging.value = true;
   const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
-  resizeState.value = {
-    startY: clientY,
-    startHeight: chatHeight.value,
+  resizeState.value = { startY: clientY, startHeight: chatHeight.value };
+
+  const moveHandler = (e: Event) => {
+    if (!isDragging.value) return;
+    const currentY =
+      "touches" in (e as TouchEvent)
+        ? (e as TouchEvent).touches[0].clientY
+        : (e as MouseEvent).clientY;
+    const deltaY = currentY - resizeState.value.startY;
+    chatHeight.value = Math.max(200, resizeState.value.startHeight + deltaY);
+  };
+
+  const stopHandler = () => {
+    isDragging.value = false;
+    document.removeEventListener("mousemove", moveHandler);
+    document.removeEventListener("mouseup", stopHandler);
+    document.removeEventListener("touchmove", moveHandler);
+    document.removeEventListener("touchend", stopHandler);
+    localStorage.setItem("chatHeight", chatHeight.value.toString());
   };
 
   if ("touches" in e) {
-    document.addEventListener("touchmove", handleTouchResize, {
-      passive: false,
-    });
-    document.addEventListener("touchend", stopResize);
+    document.addEventListener("touchmove", moveHandler, { passive: false });
+    document.addEventListener("touchend", stopHandler);
   } else {
-    document.addEventListener("mousemove", handleMouseResize);
-    document.addEventListener("mouseup", stopResize);
+    document.addEventListener("mousemove", moveHandler);
+    document.addEventListener("mouseup", stopHandler);
   }
 };
 
-const handleMouseResize = (e: MouseEvent): void => {
-  if (!isDragging.value) return;
-  const deltaY = e.clientY - resizeState.value.startY;
-  chatHeight.value = Math.max(200, resizeState.value.startHeight + deltaY);
+// --- Event Handlers ---
+const handleKeyDown = (e: KeyboardEvent): void => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    if (userInput.value.trim()) sendMessage();
+  }
 };
 
-const handleTouchResize = (e: TouchEvent): void => {
-  if (!isDragging.value) return;
-  e.preventDefault();
-  const deltaY = e.touches[0].clientY - resizeState.value.startY;
-  chatHeight.value = Math.max(200, resizeState.value.startHeight + deltaY);
-};
-
-const stopResize = (): void => {
-  isDragging.value = false;
-  document.removeEventListener("mousemove", handleMouseResize);
-  document.removeEventListener("mouseup", stopResize);
-  document.removeEventListener("touchmove", handleTouchResize);
-  document.removeEventListener("touchend", stopResize);
-  if (typeof localStorage !== "undefined") {
+const handleWindowResize = (): void => {
+  isMobile.value = checkIfMobile();
+  if (isFirstMessageSent.value) {
+    chatHeight.value = window.innerHeight;
     localStorage.setItem("chatHeight", chatHeight.value.toString());
+
+    if (isMobile.value) {
+      setTimeout(() => {
+        scrollToBottom();
+        if (chatWindowRef.value) {
+          const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
+          window.scrollTo({ top: offsetTop, behavior: "smooth" });
+        }
+      }, 100);
+    }
+  }
+  updatePromptScrollButtons();
+};
+
+const handleVisibilityChange = (): void => {
+  if (document.hidden || !isFirstMessageSent.value || !isMobile.value) return;
+
+  requestAnimationFrame(() => {
+    if (!chatWindowRef.value) return;
+    const isLandscape = window.matchMedia("(orientation: landscape)").matches;
+    const viewportHeight = window.visualViewport
+      ? window.visualViewport.height
+      : window.innerHeight;
+
+    chatHeight.value = isLandscape ? viewportHeight - 40 : viewportHeight - 20;
+    localStorage.setItem("chatHeight", chatHeight.value.toString());
+
+    const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
+    window.scrollTo({ top: offsetTop, behavior: "smooth" });
+    setTimeout(scrollToBottom, 100);
+  });
+};
+
+const handleStorageChange = (event: StorageEvent): void => {
+  if (!isClient.value) return;
+
+  switch (event.key) {
+    case "chatEnding":
+      if (event.newValue === "true" && showFeedbackModal.value) {
+        showFeedbackModal.value = false;
+        feedback.value = null;
+      }
+      break;
+    case "threadId":
+      threadId.value = event.newValue;
+      if (!event.newValue) {
+        messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
+        localStorage.removeItem("chatEnding");
+      }
+      break;
+    case "chatMessages":
+      if (event.newValue) {
+        try {
+          const newMessages = JSON.parse(event.newValue);
+          if (Array.isArray(newMessages)) messages.value = newMessages;
+        } catch (error) {
+          console.error("Error parsing chat messages from storage:", error);
+        }
+      }
+      break;
   }
 };
 
-// --- Message Handling ---
+// --- API Functions ---
 const sendMessage = async (): Promise<void> => {
   if (!userInput.value.trim()) return;
 
-  // Check if this is the first user message being sent
   const isFirstMessage =
     messages.value.length <= 1 &&
     messages.value[0]?.role === "assistant" &&
     messages.value[0]?.content.includes("Hi! What would you like to learn about Steve today?");
 
-  // Store user message temporarily
-  const userMessage = {
-    role: "user" as Role,
+  const userMessage: ChatMessage = {
+    role: "user",
     content: userInput.value,
     timestamp: Date.now(),
   };
 
-  // Add user message to chat
   messages.value.push(userMessage);
-  // Within the sendMessage function, replace the first message handling with:
-  // If this is the first actual message from the user, expand to full screen
+
   if (isFirstMessage && !isFirstMessageSent.value) {
     isFirstMessageSent.value = true;
-
-    // Use setTimeout to ensure DOM is ready
     setTimeout(async () => {
       await setFullHeightAndScroll();
-
-      // For mobile, add another scroll check after keyboard appears/disappears
       if (isMobile.value) {
         window.addEventListener(
           "resize",
           function onResize() {
             scrollToBottom();
-            // Remove this event listener after first firing
             window.removeEventListener("resize", onResize);
           },
           { once: true },
@@ -321,21 +337,14 @@ const sendMessage = async (): Promise<void> => {
     }, 50);
   }
 
-  // Track chat interaction for MiniChat sync
-  if (isClient.value) {
-    localStorage.setItem("hadChatInteraction", "true");
-  }
+  if (isClient.value) localStorage.setItem("hadChatInteraction", "true");
 
   let currentAssistantContent = "";
   let assistantMessageAdded = false;
   loading.value = true;
+
   try {
-    const requestBody: {
-      stream: boolean;
-      rawResponse: boolean;
-      messages: { role: string; content: string }[];
-      threadId?: string;
-    } = {
+    const requestBody: ChatRequest = {
       stream: true,
       rawResponse: true,
       messages: [{ role: "user", content: userInput.value }],
@@ -343,17 +352,13 @@ const sendMessage = async (): Promise<void> => {
 
     if (threadId.value) requestBody.threadId = threadId.value;
 
-    const response = await fetch("https://advocado-agent.vercel.app/chat", {
+    const response = await fetch(`${API_BASE}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
     });
 
-    // Handle non-200 responses
-    if (!response.ok) {
-      throw new Error(`Server responded with status: ${response.status}`);
-    }
-
+    if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
     if (!response.body) throw new Error("No response body");
 
     const threadIdHeader = response.headers.get("lb-thread-id");
@@ -370,6 +375,7 @@ const sendMessage = async (): Promise<void> => {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
@@ -381,11 +387,7 @@ const sendMessage = async (): Promise<void> => {
           const delta = parsed.choices[0]?.delta;
           if (delta?.content) {
             if (!assistantMessageAdded) {
-              messages.value.push({
-                role: "assistant",
-                content: "",
-                timestamp: Date.now(),
-              });
+              messages.value.push({ role: "assistant", content: "", timestamp: Date.now() });
               assistantMessageAdded = true;
             }
             currentAssistantContent += delta.content;
@@ -401,7 +403,6 @@ const sendMessage = async (): Promise<void> => {
   } catch (error) {
     console.error("Error during streaming:", error);
 
-    // Add assistant message with witty error if not already added
     if (!assistantMessageAdded) {
       messages.value.push({
         role: "assistant",
@@ -409,66 +410,44 @@ const sendMessage = async (): Promise<void> => {
         timestamp: Date.now(),
       });
     } else if (currentAssistantContent.trim() === "") {
-      // If assistant message was added but no content was received
       messages.value[messages.value.length - 1].content = getRandomWittyMessage();
     }
 
-    // Ensure the message is visible
     messages.value = [...messages.value];
     await scrollToBottom();
   } finally {
     loading.value = false;
     userInput.value = "";
-    // Reset textarea height
-    if (inputRef.value) {
-      inputRef.value.style.height = "auto";
-    }
+    if (inputRef.value) inputRef.value.style.height = "auto";
     inputRef.value?.focus();
     await scrollToBottom();
   }
 };
 
-// --- End Chat & Feedback Modal ---
 const endChat = (): void => {
-  if (isEndingChat.value || showFeedbackModal.value) return;
-  if (!threadId.value) return;
+  if (isEndingChat.value || showFeedbackModal.value || !threadId.value) return;
   showFeedbackModal.value = true;
   feedback.value = null;
-
-  // Notify other components immediately that we're ending the chat
-  if (isClient.value) {
-    localStorage.setItem("chatEnding", "true");
-  }
+  if (isClient.value) localStorage.setItem("chatEnding", "true");
 };
 
 const submitFeedback = async (): Promise<void> => {
-  if (!feedback.value || isEndingChat.value) return;
+  if (!feedback.value || isEndingChat.value || !threadId.value) return;
+
   isEndingChat.value = true;
   try {
-    if (!threadId.value) return;
-    const response = await fetch("https://advocado-agent.vercel.app/thread/resolve", {
+    const response = await fetch(`${API_BASE}/thread/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        threadId: threadId.value,
-        feedback: feedback.value,
-      }),
+      body: JSON.stringify({ threadId: threadId.value, feedback: feedback.value }),
     });
+
     if (!response.ok) throw new Error("Failed to end chat");
 
-    // Clear both threadId and chatMessages
     localStorage.removeItem("threadId");
     localStorage.removeItem("chatMessages");
     threadId.value = null;
-
-    // Reset to initial state
-    messages.value = [
-      {
-        role: "assistant",
-        content: "Hi! What would you like to learn about Steve today?",
-        timestamp: Date.now(),
-      },
-    ];
+    messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
   } catch (error) {
     console.error("Error ending chat:", error);
     messages.value.push({
@@ -488,231 +467,73 @@ const closeFeedbackModal = (): void => {
   feedback.value = null;
 };
 
-// --- Prompt Suggestions ---
-const promptSuggestions = [
-  "Tell me about Steve's background",
-  "What are Steve's top skills?",
-  "Summarize Steve's work experience",
-  "Show me Steve's recent projects",
-  "How can I contact Steve?",
-];
-
-function setSuggestion(suggestion: string): void {
+const setSuggestion = (suggestion: string): void => {
   userInput.value = suggestion;
   inputRef.value?.focus();
-}
-
-// --- Window Resize Event Handler ---
-const handleWindowResize = () => {
-  // Check if device is mobile when window is resized
-  isMobile.value = checkIfMobile();
-
-  // If we've sent the first message, update the height to fit the viewport
-  if (isFirstMessageSent.value) {
-    chatHeight.value = window.innerHeight;
-    localStorage.setItem("chatHeight", chatHeight.value.toString());
-
-    // For mobile devices, trigger additional scrolling to ensure visibility
-    if (isMobile.value) {
-      setTimeout(() => {
-        scrollToBottom();
-
-        // If chat window exists, scroll to it
-        if (chatWindowRef.value) {
-          const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
-          window.scrollTo({
-            top: offsetTop,
-            behavior: "smooth",
-          });
-        }
-      }, 100);
-    }
-  }
-  updatePromptScrollButtons();
 };
 
-// Handle visibility change for mobile browsers
-const handleVisibilityChange = () => {
-  if (!document.hidden && isFirstMessageSent.value && isMobile.value) {
-    // Use requestAnimationFrame for smoother handling
-    requestAnimationFrame(() => {
-      if (!chatWindowRef.value) return;
-
-      // Get current orientation to handle orientation changes
-      const isLandscape = window.matchMedia("(orientation: landscape)").matches;
-      const viewportHeight = window.visualViewport
-        ? window.visualViewport.height
-        : window.innerHeight;
-
-      // Adjust height based on orientation
-      chatHeight.value = isLandscape ? viewportHeight - 40 : viewportHeight - 20;
-      localStorage.setItem("chatHeight", chatHeight.value.toString());
-
-      const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
-      window.scrollTo({
-        top: offsetTop,
-        behavior: "smooth",
-      });
-
-      // Ensure messages are visible
-      setTimeout(scrollToBottom, 100);
-    });
-  }
+// --- Lifecycle ---
+const cleanupEventListeners = (): void => {
+  window.removeEventListener("resize", handleWindowResize);
+  window.removeEventListener("storage", handleStorageChange);
+  document.removeEventListener("visibilitychange", handleVisibilityChange);
+  promptBarRef.value?.removeEventListener("scroll", updatePromptScrollButtons);
+  if (inputRef.value) inputRef.value.removeEventListener("input", resizeTextarea);
 };
 
-// --- Storage event handler for cross-component synchronization ---
-const handleStorageChange = (event: StorageEvent) => {
-  if (!isClient.value) return;
-  // Handle chat ending notification
-  if (event.key === "chatEnding" && event.newValue === "true") {
-    // Another component is ending the chat, close our feedback modal if it's open
-    if (showFeedbackModal.value) {
-      showFeedbackModal.value = false;
-      feedback.value = null;
-    }
-  }
-
-  // Sync thread ID
-  if (event.key === "threadId") {
-    threadId.value = event.newValue;
-    if (!event.newValue) {
-      // Thread was ended in another component, reset to initial state
-      messages.value = [
-        {
-          role: "assistant",
-          content: "Hi! What would you like to learn about Steve today?",
-          timestamp: Date.now(),
-        },
-      ];
-      // Clean up the chatEnding flag
-      localStorage.removeItem("chatEnding");
-    }
-  }
-
-  // Sync messages
-  if (event.key === "chatMessages" && event.newValue) {
-    try {
-      const newMessages = JSON.parse(event.newValue);
-      if (Array.isArray(newMessages)) {
-        messages.value = newMessages;
-      }
-    } catch (error) {
-      console.error("Error parsing chat messages from storage:", error);
-    }
-  }
-};
-
-// Function to save messages to localStorage - ONLY save real agent conversations
-const saveMessagesToStorage = () => {
-  if (!isClient.value) return;
-
-  // Filter out messages that shouldn't be saved:
-  // 1. Messages with witty error responses
-  // 2. User messages that triggered witty responses (failed sends)
-  const messagesToSave = messages.value.filter((msg, index) => {
-    // Check if this is a witty error message
-    const isWittyMessage =
-      msg.role === "assistant" &&
-      wittyErrorMessages.some(wittyMsg => msg.content.includes(wittyMsg.split(" ")[0])); // Check first word
-
-    if (isWittyMessage) {
-      return false; // Don't save witty error messages
-    }
-
-    // Check if this user message is followed by a witty response
-    if (msg.role === "user" && index < messages.value.length - 1) {
-      const nextMessage = messages.value[index + 1];
-      const nextIsWitty =
-        nextMessage.role === "assistant" &&
-        wittyErrorMessages.some(wittyMsg => nextMessage.content.includes(wittyMsg.split(" ")[0]));
-
-      if (nextIsWitty) {
-        return false; // Don't save user messages that triggered witty responses
-      }
-    }
-
-    return true; // Save all other messages
-  });
-
-  localStorage.setItem("chatMessages", JSON.stringify(messagesToSave));
-};
-
-// Watch messages for changes to sync to storage
+// --- Watchers ---
+watch(userInput, () => nextTick(resizeTextarea));
 watch(messages, saveMessagesToStorage, { deep: true });
+watch(messages, scrollToBottom, { deep: true });
 
-// --- Initial Load ---
+// --- Mount ---
 onMounted(async () => {
   isClient.value = true;
   clientSideTheme.value = true;
-
-  // Check if device is mobile
   isMobile.value = checkIfMobile();
-  threadId.value = typeof localStorage !== "undefined" ? localStorage.getItem("threadId") : null;
-  const storedMessages =
-    typeof localStorage !== "undefined" ? localStorage.getItem("chatMessages") : null;
+
+  threadId.value = localStorage.getItem("threadId");
+  const storedMessages = localStorage.getItem("chatMessages");
 
   if (storedMessages) {
     try {
       messages.value = JSON.parse(storedMessages);
     } catch (error) {
       console.error("Error parsing stored messages:", error);
-      // If stored messages are corrupted, start fresh
-      messages.value = [
-        {
-          role: "assistant",
-          content: "Hi! What would you like to learn about Steve today?",
-          timestamp: Date.now(),
-        },
-      ];
+      messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
     }
   } else {
-    // No stored messages, start with welcome message
-    messages.value = [
-      {
-        role: "assistant",
-        content: "Hi! What would you like to learn about Steve today?",
-        timestamp: Date.now(),
-      },
-    ];
+    messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
   }
 
-  // Only load from backend if we have BOTH threadId AND no stored messages
-  // This prevents loading when we already have the conversation in localStorage
-  if (isClient.value && threadId.value && !storedMessages) {
+  // Only load from backend if we have threadId but no stored messages
+  if (threadId.value && !storedMessages) {
     isInitialLoading.value = true;
     try {
-      const messagesResponse = await fetch(
-        `https://advocado-agent.vercel.app/thread/listMessages?threadId=${threadId.value}`,
-      );
+      const response = await fetch(`${API_BASE}/thread/listMessages?threadId=${threadId.value}`);
 
-      if (messagesResponse.ok) {
-        const messagesData = await messagesResponse.json();
+      if (response.ok) {
+        const messagesData = await response.json();
         if (messagesData && Array.isArray(messagesData)) {
-          const newMessages = messagesData.map((msg: Message) => ({
+          messages.value = messagesData.map((msg: Message) => ({
             role: msg.role,
-            content: msg.content ? msg.content : "",
+            content: msg.content || "",
             timestamp: Date.now(),
           }));
-          messages.value = newMessages;
-          // Save to localStorage for cross-component sync - these are real agent messages
           saveMessagesToStorage();
 
-          // If there are user messages, we've already had a conversation
           const hasUserMessages = messagesData.some((msg: Message) => msg.role === "user");
           if (hasUserMessages) {
             isFirstMessageSent.value = true;
-            // Use setTimeout to ensure the DOM has been updated
             setTimeout(() => setFullHeightAndScroll(), 100);
           }
         }
       } else {
-        // Backend thread doesn't exist, clear the threadId
         localStorage.removeItem("threadId");
         threadId.value = null;
       }
     } catch (error) {
       console.error("Error fetching thread messages:", error);
-      // On error, clear the threadId to prevent future attempts
       localStorage.removeItem("threadId");
       threadId.value = null;
     } finally {
@@ -720,73 +541,41 @@ onMounted(async () => {
     }
   }
 
-  if (chatWindowRef.value) {
-    const savedHeight = localStorage.getItem("chatHeight");
-    if (savedHeight) chatHeight.value = parseInt(savedHeight);
-  }
+  const savedHeight = localStorage.getItem("chatHeight");
+  if (savedHeight) chatHeight.value = parseInt(savedHeight);
 
-  // Add event listeners
+  // Event listeners
   window.addEventListener("resize", handleWindowResize);
   window.addEventListener("storage", handleStorageChange);
   document.addEventListener("visibilitychange", handleVisibilityChange);
 
-  // For iOS Safari, add additional scroll event handling
+  // iOS Safari specific
   if (isMobile.value && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
     window.addEventListener("scroll", () => {
       if (isFirstMessageSent.value) {
-        // Store the current scroll position in session storage
         sessionStorage.setItem("chatScrollY", window.scrollY.toString());
       }
     });
 
-    // If we have a stored position, try to restore it
     const storedScrollY = sessionStorage.getItem("chatScrollY");
     if (storedScrollY && isFirstMessageSent.value) {
-      setTimeout(() => {
-        window.scrollTo(0, parseInt(storedScrollY));
-      }, 100);
+      setTimeout(() => window.scrollTo(0, parseInt(storedScrollY)), 100);
     }
   }
 
   scrollToBottom();
   inputRef.value?.focus();
-  nextTick(() => {
-    updatePromptScrollButtons();
-    promptBarRef.value?.addEventListener("scroll", updatePromptScrollButtons);
-    // Initialize textarea resize
-    if (inputRef.value) {
-      resizeTextarea();
-      inputRef.value.addEventListener("input", resizeTextarea);
-    }
-  });
-});
 
-// --- Clean up event listeners ---
-const cleanupEventListeners = () => {
-  window.removeEventListener("resize", handleWindowResize);
-  window.removeEventListener("storage", handleStorageChange);
-  document.removeEventListener("visibilitychange", handleVisibilityChange);
-  promptBarRef.value?.removeEventListener("scroll", updatePromptScrollButtons);
+  await nextTick();
+  updatePromptScrollButtons();
+  promptBarRef.value?.addEventListener("scroll", updatePromptScrollButtons);
   if (inputRef.value) {
-    inputRef.value.removeEventListener("input", resizeTextarea);
+    resizeTextarea();
+    inputRef.value.addEventListener("input", resizeTextarea);
   }
-  if (isMobile.value && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-    window.removeEventListener("scroll", () => {});
-  }
-};
-
-onBeforeUnmount(() => {
-  cleanupEventListeners();
 });
 
-// --- Watchers ---
-watch(
-  messages,
-  () => {
-    scrollToBottom();
-  },
-  { deep: true },
-);
+onBeforeUnmount(cleanupEventListeners);
 </script>
 
 <template>
@@ -795,14 +584,13 @@ watch(
     ref="chatWindowRef"
     :style="{ height: `${chatHeight}px`, ...cssVars }"
     :class="[
-      '!relative',
-      '!flex !w-full !flex-col !rounded-lg !p-4 !shadow-lg',
+      '!relative !flex !w-full !flex-col !rounded-lg !p-4 !shadow-lg',
       clientSideTheme && isDark
         ? '!border !border-gray-700 !bg-gray-900'
         : '!border !border-gray-200 !bg-gray-50',
     ]"
   >
-    <!-- Overlay for initial loading -->
+    <!-- Loading Overlay -->
     <div v-if="isInitialLoading" class="chat-loading-overlay">
       <div class="chat-loading-content">
         <div
@@ -813,6 +601,7 @@ watch(
         </p>
       </div>
     </div>
+
     <!-- Header -->
     <div
       :class="[
@@ -846,7 +635,7 @@ watch(
       </button>
     </div>
 
-    <!-- Messages area -->
+    <!-- Messages Area -->
     <div ref="chatContainerRef" class="!flex-1 !overflow-auto !space-y-4 !flex !flex-col !px-1">
       <div
         v-for="(msg, index) in messages"
@@ -875,8 +664,9 @@ watch(
                     ? '!text-gray-400'
                     : '!text-gray-500',
               ]"
-              >{{ msg.role === "user" ? "You" : "Advocado" }}</span
             >
+              {{ msg.role === "user" ? "You" : "Advocado" }}
+            </span>
             <span
               v-if="msg.timestamp"
               :class="[
@@ -887,8 +677,9 @@ watch(
                     ? '!text-gray-400'
                     : '!text-gray-500',
               ]"
-              >{{ formatTime(msg.timestamp) }}</span
             >
+              {{ formatTime(msg.timestamp) }}
+            </span>
           </div>
           <!-- eslint-disable vue/no-v-html -->
           <div
@@ -899,7 +690,7 @@ watch(
         </div>
       </div>
 
-      <!-- Typing indicator -->
+      <!-- Loading Indicator -->
       <div v-if="loading" class="!flex !justify-start !w-full">
         <div
           :class="[
@@ -914,8 +705,9 @@ watch(
               :class="
                 clientSideTheme && isDark ? '!text-xs !text-gray-400' : '!text-xs !text-gray-500'
               "
-              >Advocado</span
             >
+              Advocado
+            </span>
             <span
               :class="
                 clientSideTheme && isDark
@@ -945,7 +737,7 @@ watch(
       </div>
     </div>
 
-    <!-- Resize handle -->
+    <!-- Resize Handle -->
     <div
       class="!mb-6 !h-2 !w-full !cursor-ns-resize !flex !justify-center !items-center hover:!bg-gray-300 dark:hover:!bg-gray-700 !transition-colors !rounded-b-lg"
       @mousedown="startResize"
@@ -959,7 +751,7 @@ watch(
       ></div>
     </div>
 
-    <!-- Prompt Suggestions (responsive scroll bar, no buttons) -->
+    <!-- Prompt Suggestions -->
     <div class="!mb-0.5 !relative">
       <div
         ref="promptBarRef"
@@ -967,8 +759,8 @@ watch(
         @scroll="updatePromptScrollButtons"
       >
         <button
-          v-for="(suggestion, idx) in promptSuggestions"
-          :key="idx"
+          v-for="suggestion in PROMPT_SUGGESTIONS"
+          :key="suggestion"
           type="button"
           :disabled="isInitialLoading"
           :class="[
@@ -986,7 +778,7 @@ watch(
       </div>
     </div>
 
-    <!-- Input form -->
+    <!-- Input Form -->
     <form
       :class="[
         '!mt-4 !flex !rounded-lg !overflow-hidden !shadow-md',
@@ -1038,7 +830,7 @@ watch(
       </button>
     </form>
 
-    <!-- Feedback Modal (inside chat window) -->
+    <!-- Feedback Modal -->
     <div
       v-if="showFeedbackModal"
       class="!absolute !inset-0 !flex !items-center !justify-center !z-50"
@@ -1140,7 +932,6 @@ watch(
 </template>
 
 <style scoped>
-/* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -1158,13 +949,10 @@ watch(
   background: var(--scrollbar-track);
 }
 
-/* Markdown styling */
 :deep(.markdown-content) {
   line-height: 1.4 !important;
-  /* slightly tighter for chat */
 }
 
-/* Remove margin/padding from paragraphs, lists, pre/code, blockquotes */
 :deep(.markdown-content p),
 :deep(.markdown-content ul),
 :deep(.markdown-content ol),
@@ -1174,33 +962,26 @@ watch(
   padding: 0 !important;
 }
 
-/* Tight spacing between sibling blocks (paragraphs, lists, etc.) */
 :deep(.markdown-content > * + *) {
   margin-top: 0.4em !important;
-  /* em units scale with font size */
 }
 
-/* Paragraphs that follow another paragraph (extra safe for nested structure) */
 :deep(.markdown-content p + p) {
   margin-top: 0.4em !important;
 }
 
-/* Remove default margin/padding from list items and nested paragraphs */
 :deep(.markdown-content li),
 :deep(.markdown-content li p) {
   margin: 0 !important;
   padding: 0 !important;
 }
 
-/* Tighter left margin for lists for less indentation */
 :deep(.markdown-content ul),
 :deep(.markdown-content ol) {
   margin-left: 1rem !important;
-  /* less than default 1.5rem */
   padding: 0 !important;
 }
 
-/* Standard list-style */
 :deep(.markdown-content ul) {
   list-style-type: disc !important;
 }
@@ -1209,7 +990,6 @@ watch(
   list-style-type: decimal !important;
 }
 
-/* Strong/italic */
 :deep(.markdown-content strong) {
   font-weight: bold !important;
 }
@@ -1218,7 +998,6 @@ watch(
   font-style: italic !important;
 }
 
-/* Inline code */
 :deep(.markdown-content code) {
   font-family: monospace !important;
   background-color: var(--code-bg-color) !important;
@@ -1226,7 +1005,6 @@ watch(
   border-radius: 0.25rem !important;
 }
 
-/* Code block */
 :deep(.markdown-content pre code) {
   display: block !important;
   padding: 0.75rem !important;
@@ -1234,13 +1012,11 @@ watch(
   overflow-x: auto !important;
 }
 
-/* Links */
 :deep(.markdown-content a) {
   color: var(--link-color) !important;
   text-decoration: underline !important;
 }
 
-/* Blockquote */
 :deep(.markdown-content blockquote) {
   border-left: 3px solid var(--blockquote-border-color) !important;
   padding-left: 1rem !important;
@@ -1248,7 +1024,6 @@ watch(
   margin: 0 !important;
 }
 
-/* Desktop: slim horizontal scrollbar for prompt bar */
 @media (min-width: 640px) {
   .prompt-bar::-webkit-scrollbar {
     height: 4px !important;
@@ -1269,7 +1044,6 @@ watch(
   }
 }
 
-/* Mobile: hide horizontal scrollbar for prompt bar */
 @media (max-width: 639px) {
   .prompt-bar::-webkit-scrollbar {
     display: none !important;
@@ -1282,18 +1056,6 @@ watch(
   }
 }
 
-/* Hide scrollbar */
-.hide-scrollbar::-webkit-scrollbar {
-  display: none !important;
-  height: 0 !important;
-}
-
-.hide-scrollbar {
-  -ms-overflow-style: none !important;
-  scrollbar-width: none !important;
-}
-
-/* Overlay for initial loading */
 .chat-loading-overlay {
   position: absolute;
   inset: 0;
