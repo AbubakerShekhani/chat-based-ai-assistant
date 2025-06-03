@@ -12,7 +12,7 @@ interface TimelineItem {
 }
 
 interface Props {
-  items: TimelineItem[];
+  items?: TimelineItem[];
 }
 
 // --- Constants ---
