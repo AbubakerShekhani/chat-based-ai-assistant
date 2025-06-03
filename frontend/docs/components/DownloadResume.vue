@@ -125,6 +125,27 @@ const extractResumeContent = (): void => {
   const downloadButtonContainer = contentClone.querySelector('div[style*="text-align: right"]');
   downloadButtonContainer?.remove();
 
+  // Remove chat components that might be embedded in the page
+  const chatComponents = contentClone.querySelectorAll(
+    '[class*="chat"], [id*="chat"], [class*="Chat"]',
+  );
+  chatComponents.forEach(component => component.remove());
+
+  // Remove any fixed positioned elements (like mini chat)
+  const fixedElements = contentClone.querySelectorAll('[class*="fixed"], [style*="fixed"]');
+  fixedElements.forEach(element => element.remove());
+
+  // Remove any elements that contain "Advocado" to avoid chat content
+  const advocadoElements = contentClone.querySelectorAll("*");
+  advocadoElements.forEach(element => {
+    if (
+      element.textContent?.includes("Chat with Advocado") ||
+      element.textContent?.includes("Advocado")
+    ) {
+      element.remove();
+    }
+  });
+
   resumeMarkdown.value = getMarkdownFromHTML(contentClone);
 };
 
