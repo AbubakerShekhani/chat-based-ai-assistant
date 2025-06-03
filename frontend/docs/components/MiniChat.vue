@@ -477,7 +477,7 @@ onUnmounted(() => {
           ></div>
           <p
             :class="clientSideTheme && isDark ? '!text-gray-200' : '!text-gray-700'"
-            class="!text-sm"
+            class="!text-base"
           >
             Loading past conversations...
           </p>
@@ -495,7 +495,7 @@ onUnmounted(() => {
           <div class="!h-2 !w-2 !rounded-full !bg-green-500"></div>
           <h3
             :class="[
-              '!text-sm !font-medium',
+              '!text-base !font-medium',
               clientSideTheme && isDark ? '!text-gray-100' : '!text-gray-800',
             ]"
           >
@@ -507,7 +507,7 @@ onUnmounted(() => {
             v-if="hasOngoingThread"
             :disabled="isEndingChat || isInitialLoading"
             :class="[
-              '!px-2 !py-1 !rounded !text-xs !transition-colors',
+              '!px-2 !py-1 !rounded !text-sm !transition-colors',
               '!bg-indigo-600 !text-white hover:!bg-indigo-700',
               (isEndingChat || isInitialLoading) && '!opacity-50 !cursor-not-allowed',
             ]"
@@ -545,7 +545,7 @@ onUnmounted(() => {
           <div
             v-if="msg.content.trim()"
             :class="[
-              '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-sm !shadow-md',
+              '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-base !shadow-md',
               msg.role === 'user'
                 ? '!bg-indigo-600 !text-white'
                 : clientSideTheme && isDark
@@ -593,7 +593,7 @@ onUnmounted(() => {
         <div v-if="loading" class="!flex !justify-start !w-full">
           <div
             :class="[
-              '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-sm !shadow-md',
+              '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-base !shadow-md',
               clientSideTheme && isDark
                 ? '!bg-gray-800 !text-gray-300 !border !border-gray-700'
                 : '!bg-white !text-gray-600 !border !border-gray-200',
@@ -649,7 +649,7 @@ onUnmounted(() => {
             v-model="userInput"
             placeholder="Ask something about Steve..."
             :class="[
-              '!flex-1 !rounded-lg !p-2 !text-sm !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0 mobile-textarea',
+              '!flex-1 !rounded-lg !p-2 !text-base !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0',
               clientSideTheme && isDark
                 ? '!bg-gray-800 !text-gray-100 !placeholder-gray-400'
                 : '!bg-gray-100 !text-gray-800 !placeholder-gray-500',
@@ -699,7 +699,7 @@ onUnmounted(() => {
         >
           <h3
             :class="[
-              '!text-sm !font-medium !mb-3',
+              '!text-base !font-medium !mb-3',
               clientSideTheme && isDark ? '!text-white' : '!text-gray-900',
             ]"
           >
