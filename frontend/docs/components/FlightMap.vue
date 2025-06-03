@@ -50,7 +50,7 @@ interface Airport {
 }
 
 interface Props {
-  flights?: FlightData[];
+  flights: FlightData[];
   height?: string;
 }
 
@@ -293,6 +293,7 @@ const mapRef = ref<MapRef | null>(null);
 const isMapReady = ref(false);
 const currentZoom = ref(2);
 const isZooming = ref(false);
+const initialZoom = ref<number>(2);
 
 // --- Theme & Computed ---
 const { isDark } = useData();
@@ -415,6 +416,51 @@ const simplifiedAirports = computed((): Airport[] => {
   return airports.value;
 });
 
+// Calculate appropriate zoom levels based on data
+const zoomLevels = computed(() => {
+  if (airports.value.length === 0) {
+    return { minZoom: 2, maxZoom: 18, initialZoom: 2 };
+  }
+
+  const lats = airports.value.map(a => a.lat);
+  const lngs = airports.value.map(a => a.lng);
+
+  const latSpread = Math.max(...lats) - Math.min(...lats);
+  const lngSpread = Math.max(...lngs) - Math.min(...lngs);
+  const maxSpread = Math.max(latSpread, lngSpread);
+
+  // Calculate appropriate zoom levels based on geographic spread
+  let calculatedInitialZoom: number;
+  let minZoomOut: number;
+
+  if (maxSpread > 120) {
+    // Global spread
+    calculatedInitialZoom = 2;
+    minZoomOut = 2;
+  } else if (maxSpread > 60) {
+    // Continental spread
+    calculatedInitialZoom = 3;
+    minZoomOut = 2;
+  } else if (maxSpread > 30) {
+    // Regional spread
+    calculatedInitialZoom = 4;
+    minZoomOut = 3;
+  } else if (maxSpread > 10) {
+    // Country spread
+    calculatedInitialZoom = 5;
+    minZoomOut = 4;
+  } else {
+    // City/local spread
+    calculatedInitialZoom = 6;
+    minZoomOut = 5;
+  }
+
+  return {
+    minZoom: minZoomOut,
+    maxZoom: 18,
+    initialZoom: calculatedInitialZoom,
+  };
+});
 // Calculate map bounds for initial view
 const mapBounds = computed((): [[number, number], [number, number]] | null => {
   if (airports.value.length === 0) return null;
@@ -422,9 +468,14 @@ const mapBounds = computed((): [[number, number], [number, number]] | null => {
   const lats = airports.value.map(a => a.lat);
   const lngs = airports.value.map(a => a.lng);
 
+  // Add padding based on the spread to ensure nice initial view
+  const latSpread = Math.max(...lats) - Math.min(...lats);
+  const lngSpread = Math.max(...lngs) - Math.min(...lngs);
+  const padding = Math.max(Math.min(Math.max(latSpread, lngSpread) * 0.2, 10), 2);
+
   return [
-    [Math.min(...lats) - 5, Math.min(...lngs) - 5], // Southwest
-    [Math.max(...lats) + 5, Math.max(...lngs) + 5], // Northeast
+    [Math.min(...lats) - padding, Math.min(...lngs) - padding], // Southwest
+    [Math.max(...lats) + padding, Math.max(...lngs) + padding], // Northeast
   ];
 });
 
@@ -454,6 +505,12 @@ const onMapReady = async (): Promise<void> => {
   if (mapBounds.value && mapRef.value?.leafletObject) {
     const map: LeafletMap = mapRef.value.leafletObject as LeafletMap;
 
+    // Set zoom limits based on calculated values
+    const { minZoom, maxZoom, initialZoom: calcInitialZoom } = zoomLevels.value;
+    map.setMinZoom(minZoom);
+    map.setMaxZoom(maxZoom);
+    initialZoom.value = calcInitialZoom;
+
     // Aggressive performance optimizations
     if (map.options) {
       map.options.fadeAnimation = false;
@@ -479,11 +536,22 @@ const onMapReady = async (): Promise<void> => {
       currentZoom.value = map.getZoom();
     });
 
-    // Initial fit bounds without animation
-    map.fitBounds(mapBounds.value, {
+    // Fit bounds to show all data with calculated zoom level
+    const bounds = mapBounds.value;
+    map.fitBounds(bounds, {
       padding: [20, 20],
       animate: false,
+      maxZoom: calcInitialZoom,
     });
+
+    // Store the initial zoom level after fitting bounds
+    setTimeout(() => {
+      const fittedZoom = map.getZoom();
+      // Set minimum zoom to prevent zooming out beyond this initial view
+      map.setMinZoom(Math.max(minZoom, fittedZoom - 1));
+      currentZoom.value = fittedZoom;
+      initialZoom.value = fittedZoom;
+    }, 100);
   }
 };
 
@@ -514,7 +582,7 @@ onMounted((): void => {
     <!-- Map -->
     <LMap
       ref="mapRef"
-      :zoom="2"
+      :zoom="zoomLevels.initialZoom"
       :center="[20, 0]"
       :options="{
         zoomControl: false,
@@ -524,6 +592,9 @@ onMounted((): void => {
         keyboard: true,
         dragging: true,
         touchZoom: true,
+        // Zoom restrictions will be set dynamically in onMapReady
+        minZoom: zoomLevels.minZoom,
+        maxZoom: zoomLevels.maxZoom,
         // Aggressive performance optimizations
         preferCanvas: true,
         zoomAnimation: true,
