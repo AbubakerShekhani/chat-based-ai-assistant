@@ -38,7 +38,9 @@
     "vue": "^3.5.13"
   },
   "dependencies": {
+    "@vue-leaflet/vue-leaflet": "^0.10.1",
     "jspdf": "^3.0.1",
+    "leaflet": "^1.9.4",
     "marked": "^15.0.11"
   }
 }
