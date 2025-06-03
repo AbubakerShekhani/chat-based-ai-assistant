@@ -419,7 +419,7 @@ const simplifiedAirports = computed((): Airport[] => {
 // Calculate appropriate zoom levels based on data
 const zoomLevels = computed(() => {
   if (airports.value.length === 0) {
-    return { minZoom: 1, maxZoom: 18, initialZoom: 2 };
+    return { minZoom: 2, maxZoom: 18, initialZoom: 2 };
   }
 
   const lats = airports.value.map(a => a.lat);
@@ -436,7 +436,7 @@ const zoomLevels = computed(() => {
   if (maxSpread > 120) {
     // Global spread
     calculatedInitialZoom = 2;
-    minZoomOut = 1;
+    minZoomOut = 2;
   } else if (maxSpread > 60) {
     // Continental spread
     calculatedInitialZoom = 3;
