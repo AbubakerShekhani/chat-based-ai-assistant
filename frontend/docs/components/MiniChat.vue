@@ -35,10 +35,7 @@ const userInput = ref("");
 // Computed properties
 const hasOngoingThread = computed(() => !!threadId.value);
 
-// Message sending function
-// See streaming implementation below
-
-// Witty messages for chat endings
+// Witty messages for chat endings - ALIGNED with main chat
 const wittyMessages = [
   "Oh my, looks like something is wrong with Advocado 🥑. You can [read about Steve here](/about) or try again later!",
   "Oops! Advocado seems to have taken a little nap 😴. While you wait, why not [learn about Steve](/about)? Or try again in a moment!",
@@ -56,113 +53,6 @@ const getRandomWittyMessage = () => {
   return wittyMessages[Math.floor(Math.random() * wittyMessages.length)];
 };
 
-// Storage event handler for cross-component synchronization
-const handleStorageChange = (event: StorageEvent) => {
-  if (!isClient.value) return;
-
-  // Handle mini chat state
-  if (event.key === "miniChatOpen") {
-    isChatOpen.value = event.newValue === "true";
-  }
-
-  // Handle chat interaction state
-  if (event.key === "chatMessages") {
-    try {
-      const newMessages = JSON.parse(event.newValue || "[]");
-      if (Array.isArray(newMessages)) {
-        // Check if there are any new user messages
-        const hasNewUserMessages = newMessages.some(
-          (msg: Message) =>
-            msg.role === "user" &&
-            !messages.value.some(
-              existingMsg =>
-                existingMsg.role === msg.role &&
-                existingMsg.content === msg.content &&
-                existingMsg.timestamp === msg.timestamp,
-            ),
-        );
-        if (hasNewUserMessages) {
-          isChatOpen.value = true;
-          localStorage.setItem("miniChatOpen", "true");
-        }
-        messages.value = newMessages;
-      }
-    } catch (error) {
-      console.error("Error parsing chat messages from storage:", error);
-    }
-  }
-
-  // Handle chat interaction flag
-  if (event.key === "hadChatInteraction") {
-    if (event.newValue === "true") {
-      isChatOpen.value = true;
-      localStorage.setItem("miniChatOpen", "true");
-    }
-  }
-
-  // Sync thread ID
-  if (event.key === "threadId") {
-    threadId.value = event.newValue;
-    if (!event.newValue) {
-      // Thread was ended in another component
-      messages.value = [
-        {
-          role: "assistant",
-          content: getRandomWittyMessage(),
-          timestamp: Date.now(),
-        },
-      ];
-    }
-  }
-
-  // Sync messages
-  if (event.key === "chatMessages" && event.newValue) {
-    try {
-      const newMessages = JSON.parse(event.newValue);
-      if (Array.isArray(newMessages)) {
-        messages.value = newMessages;
-      }
-    } catch (error) {
-      console.error("Error parsing chat messages from storage:", error);
-    }
-  }
-};
-
-// Function to save messages to localStorage
-const saveMessagesToStorage = () => {
-  if (!isClient.value) return;
-  localStorage.setItem("chatMessages", JSON.stringify(messages.value));
-};
-
-// Watch messages for changes to sync to storage
-watch(messages, saveMessagesToStorage, { deep: true });
-
-onMounted(() => {
-  isClient.value = true;
-  clientSideTheme.value =
-    typeof localStorage !== "undefined" &&
-    localStorage.getItem("vitepress-theme-appearance") === "dark";
-
-  // Load existing thread and messages
-  threadId.value = typeof localStorage !== "undefined" ? localStorage.getItem("threadId") : null;
-  const storedMessages =
-    typeof localStorage !== "undefined" ? localStorage.getItem("chatMessages") : null;
-  if (storedMessages) {
-    try {
-      messages.value = JSON.parse(storedMessages);
-    } catch (error) {
-      console.error("Error parsing stored messages:", error);
-    }
-  }
-
-  // Add storage event listener
-  window.addEventListener("storage", handleStorageChange);
-});
-
-onUnmounted(() => {
-  window.removeEventListener("storage", handleStorageChange);
-});
-
 // --- DOM Refs ---
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const chatContainerRef = ref<HTMLDivElement | null>(null);
@@ -179,11 +69,14 @@ const handleKeyDown = (e: KeyboardEvent) => {
 
 // Auto-resize textarea as content grows
 const resizeTextarea = () => {
-  const textarea = document.querySelector("textarea");
-  if (textarea) {
-    textarea.style.height = "auto";
-    textarea.style.height = textarea.scrollHeight + "px";
-  }
+  if (!inputRef.value) return;
+
+  // Reset height to auto first to get the correct scrollHeight
+  inputRef.value.style.height = "auto";
+
+  // Set new height based on scrollHeight (with a max height)
+  const newHeight = Math.min(inputRef.value.scrollHeight, 100);
+  inputRef.value.style.height = `${newHeight}px`;
 };
 
 // Watch for input changes to auto-resize
@@ -215,7 +108,20 @@ const parseMarkdown = (content: string): string | Promise<string> => marked.pars
 const scrollToBottom = async (): Promise<void> => {
   await nextTick();
   if (!chatContainerRef.value) return;
-  chatContainerRef.value.scrollTop = chatContainerRef.value.scrollHeight;
+
+  // Use requestAnimationFrame for smoother scrolling
+  requestAnimationFrame(() => {
+    if (!chatContainerRef.value) return;
+
+    // Check if we're already at the bottom to avoid unnecessary scrolling
+    const isAtBottom =
+      chatContainerRef.value.scrollHeight - chatContainerRef.value.scrollTop <=
+      chatContainerRef.value.clientHeight + 50;
+
+    if (!isAtBottom) {
+      chatContainerRef.value.scrollTop = chatContainerRef.value.scrollHeight;
+    }
+  });
 };
 
 // --- Message Handling ---
@@ -238,12 +144,18 @@ const sendMessage = async (): Promise<void> => {
   loading.value = true;
 
   try {
-    const requestBody = {
+    const requestBody: {
+      stream: boolean;
+      rawResponse: boolean;
+      messages: { role: string; content: string }[];
+      threadId?: string;
+    } = {
       stream: true,
       rawResponse: true,
       messages: [{ role: "user", content: userInput.value }],
-      threadId: threadId.value,
     };
+
+    if (threadId.value) requestBody.threadId = threadId.value;
 
     const response = await fetch("https://advocado-agent.vercel.app/chat", {
       method: "POST",
@@ -251,7 +163,11 @@ const sendMessage = async (): Promise<void> => {
       body: JSON.stringify(requestBody),
     });
 
-    if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
+    // Handle non-200 responses
+    if (!response.ok) {
+      throw new Error(`Server responded with status: ${response.status}`);
+    }
+
     if (!response.body) throw new Error("No response body");
 
     const threadIdHeader = response.headers.get("lb-thread-id");
@@ -298,18 +214,26 @@ const sendMessage = async (): Promise<void> => {
     }
   } catch (error) {
     console.error("Error during streaming:", error);
+
+    // Add assistant message with witty error if not already added
     if (!assistantMessageAdded) {
       messages.value.push({
         role: "assistant",
         content: getRandomWittyMessage(),
         timestamp: Date.now(),
       });
+    } else if (currentAssistantContent.trim() === "") {
+      // If assistant message was added but no content was received
+      messages.value[messages.value.length - 1].content = getRandomWittyMessage();
     }
+
+    // Ensure the message is visible
     messages.value = [...messages.value];
     await scrollToBottom();
   } finally {
     loading.value = false;
     userInput.value = "";
+    // Reset textarea height
     if (inputRef.value) {
       inputRef.value.style.height = "auto";
     }
@@ -345,13 +269,20 @@ const submitFeedback = async (): Promise<void> => {
       }),
     });
     if (!response.ok) throw new Error("Failed to end chat");
+
+    // Clear both threadId and chatMessages
     localStorage.removeItem("threadId");
+    localStorage.removeItem("chatMessages");
     threadId.value = null;
-    messages.value.push({
-      role: "assistant",
-      content: "Chat session has ended. Ask me anything to start a new conversation!",
-      timestamp: Date.now(),
-    });
+
+    // Reset to initial state
+    messages.value = [
+      {
+        role: "assistant",
+        content: "Hi! What would you like to learn about Steve today?",
+        timestamp: Date.now(),
+      },
+    ];
   } catch (error) {
     console.error("Error ending chat:", error);
     messages.value.push({
@@ -371,6 +302,127 @@ const closeFeedbackModal = (): void => {
   feedback.value = null;
 };
 
+// Storage event handler for cross-component synchronization
+const handleStorageChange = (event: StorageEvent) => {
+  if (!isClient.value) return;
+
+  // Handle mini chat state
+  if (event.key === "miniChatOpen") {
+    isChatOpen.value = event.newValue === "true";
+  }
+
+  // Handle chat interaction state
+  if (event.key === "chatMessages") {
+    try {
+      const newMessages = JSON.parse(event.newValue || "[]");
+      if (Array.isArray(newMessages)) {
+        // Check if there are any new user messages
+        const hasNewUserMessages = newMessages.some(
+          (msg: Message) =>
+            msg.role === "user" &&
+            !messages.value.some(
+              existingMsg =>
+                existingMsg.role === msg.role &&
+                existingMsg.content === msg.content &&
+                existingMsg.timestamp === msg.timestamp,
+            ),
+        );
+        if (hasNewUserMessages) {
+          isChatOpen.value = true;
+          localStorage.setItem("miniChatOpen", "true");
+        }
+        messages.value = newMessages;
+      }
+    } catch (error) {
+      console.error("Error parsing chat messages from storage:", error);
+    }
+  }
+
+  // Handle chat interaction flag
+  if (event.key === "hadChatInteraction") {
+    if (event.newValue === "true") {
+      isChatOpen.value = true;
+      localStorage.setItem("miniChatOpen", "true");
+    }
+  }
+
+  // Handle chat ending notification
+  if (event.key === "chatEnding" && event.newValue === "true") {
+    // Another component is ending the chat, close our feedback modal if it's open
+    if (showFeedbackModal.value) {
+      showFeedbackModal.value = false;
+      feedback.value = null;
+    }
+  }
+
+  // Sync thread ID
+  if (event.key === "threadId") {
+    threadId.value = event.newValue;
+    if (!event.newValue) {
+      // Thread was ended in another component
+      messages.value = [
+        {
+          role: "assistant",
+          content: "Hi! What would you like to learn about Steve today?",
+          timestamp: Date.now(),
+        },
+      ];
+      // Clean up the chatEnding flag
+      localStorage.removeItem("chatEnding");
+    }
+  }
+
+  // Sync messages
+  if (event.key === "chatMessages" && event.newValue) {
+    try {
+      const newMessages = JSON.parse(event.newValue);
+      if (Array.isArray(newMessages)) {
+        messages.value = newMessages;
+      }
+    } catch (error) {
+      console.error("Error parsing chat messages from storage:", error);
+    }
+  }
+};
+
+// Function to save messages to localStorage - ONLY save real agent conversations
+const saveMessagesToStorage = () => {
+  if (!isClient.value) return;
+
+  // Filter out messages that shouldn't be saved:
+  // 1. Messages with witty error responses
+  // 2. User messages that triggered witty responses (failed sends)
+  const messagesToSave = messages.value.filter((msg, index) => {
+    // Check if this is a witty error message
+    const isWittyMessage =
+      msg.role === "assistant" &&
+      wittyMessages.some(wittyMsg => msg.content.includes(wittyMsg.split(" ")[0])); // Check first word
+
+    if (isWittyMessage) {
+      return false; // Don't save witty error messages
+    }
+
+    // Check if this user message is followed by a witty response
+    if (msg.role === "user" && index < messages.value.length - 1) {
+      const nextMessage = messages.value[index + 1];
+      const nextIsWitty =
+        nextMessage.role === "assistant" &&
+        wittyMessages.some(wittyMsg => nextMessage.content.includes(wittyMsg.split(" ")[0]));
+
+      if (nextIsWitty) {
+        return false; // Don't save user messages that triggered witty responses
+      }
+    }
+
+    return true; // Save all other messages
+  });
+
+  localStorage.setItem("chatMessages", JSON.stringify(messagesToSave));
+};
+
+// Watch messages for changes to sync to storage
+watch(messages, saveMessagesToStorage, { deep: true });
+
 const toggleChat = () => {
   isChatOpen.value = !isChatOpen.value;
   if (isClient.value) {
@@ -378,22 +430,83 @@ const toggleChat = () => {
   }
   if (isChatOpen.value) {
     nextTick(() => {
-      const textarea = document.querySelector("textarea");
-      if (textarea) {
-        textarea.focus();
+      if (inputRef.value) {
+        inputRef.value.focus();
       }
     });
   }
 };
 
+// --- Watchers ---
+// Watch for chat open state changes
+watch(isChatOpen, async newVal => {
+  if (newVal) {
+    await nextTick();
+    scrollToBottom();
+    // Focus the textarea when opening
+    nextTick(() => {
+      if (inputRef.value) {
+        inputRef.value.focus();
+      }
+    });
+  }
+});
+
+// Watch messages for changes to sync to storage and scroll - ONLY sync real agent conversations
+watch(
+  messages,
+  async () => {
+    if (!isClient.value) return;
+
+    // Use the smart filtering function instead of direct save
+    saveMessagesToStorage();
+
+    if (isChatOpen.value) {
+      await nextTick();
+      scrollToBottom();
+    }
+  },
+  { deep: true },
+);
+
 // --- Initial Load ---
 onMounted(async () => {
   isClient.value = true;
-  clientSideTheme.value = true; // Initialize from localStorage if available
+  clientSideTheme.value = true;
+
+  // Load existing thread and messages
+  threadId.value = typeof localStorage !== "undefined" ? localStorage.getItem("threadId") : null;
+  const storedMessages =
+    typeof localStorage !== "undefined" ? localStorage.getItem("chatMessages") : null;
+
+  if (storedMessages) {
+    try {
+      messages.value = JSON.parse(storedMessages);
+    } catch (error) {
+      console.error("Error parsing stored messages:", error);
+      // If stored messages are corrupted, start fresh
+      messages.value = [
+        {
+          role: "assistant",
+          content: "Hi! What would you like to learn about Steve today?",
+          timestamp: Date.now(),
+        },
+      ];
+    }
+  } else {
+    // No stored messages, start with welcome message
+    messages.value = [
+      {
+        role: "assistant",
+        content: "Hi! What would you like to learn about Steve today?",
+        timestamp: Date.now(),
+      },
+    ];
+  }
 
   // Initial chat state setup
   if (typeof localStorage !== "undefined") {
-    threadId.value = localStorage.getItem("threadId"); // Handle chat window state
+    // Handle chat window state
     const hadInteraction = localStorage.getItem("hadChatInteraction") === "true";
     const lastMiniChatState = localStorage.getItem("miniChatOpen");
 
@@ -410,34 +523,36 @@ onMounted(async () => {
     }
   }
 
-  // Initialize with default welcome message if no messages exist
-  if (messages.value.length === 0) {
-    messages.value = [
-      {
-        role: "assistant",
-        content: "Hi! What would you like to learn about Steve today?",
-        timestamp: Date.now(),
-      },
-    ];
-  }
-
-  // Load existing thread messages if available
-  if (isClient.value && threadId.value) {
+  // Only load from backend if we have BOTH threadId AND no stored messages
+  // This prevents loading when we already have the conversation in localStorage
+  if (isClient.value && threadId.value && !storedMessages) {
     isInitialLoading.value = true;
     try {
       const response = await fetch(
         `https://advocado-agent.vercel.app/thread/listMessages?threadId=${threadId.value}`,
       );
-      const messagesData = await response.json();
-      if (messagesData && Array.isArray(messagesData)) {
-        messages.value = messagesData.map((msg: Message) => ({
-          role: msg.role,
-          content: msg.content ? msg.content : "",
-          timestamp: Date.now(),
-        }));
+
+      if (response.ok) {
+        const messagesData = await response.json();
+        if (messagesData && Array.isArray(messagesData)) {
+          messages.value = messagesData.map((msg: Message) => ({
+            role: msg.role,
+            content: msg.content ? msg.content : "",
+            timestamp: Date.now(),
+          }));
+          // Save to localStorage for cross-component sync - these are real agent messages
+          saveMessagesToStorage();
+        }
+      } else {
+        // Backend thread doesn't exist, clear the threadId
+        localStorage.removeItem("threadId");
+        threadId.value = null;
       }
     } catch (error) {
       console.error("Error fetching thread messages:", error);
+      // On error, clear the threadId to prevent future attempts
+      localStorage.removeItem("threadId");
+      threadId.value = null;
     } finally {
       isInitialLoading.value = false;
       // After everything is loaded, ensure we scroll to bottom
@@ -453,36 +568,14 @@ onMounted(async () => {
       scrollToBottom();
     }
   }
+
+  // Add storage event listener
+  window.addEventListener("storage", handleStorageChange);
 });
 
-// Watch for chat open state changes
-watch(isChatOpen, async newVal => {
-  if (newVal) {
-    await nextTick();
-    scrollToBottom();
-    // Focus the textarea when opening
-    nextTick(() => {
-      const textarea = document.querySelector("textarea");
-      if (textarea) {
-        textarea.focus();
-      }
-    });
-  }
+onUnmounted(() => {
+  window.removeEventListener("storage", handleStorageChange);
 });
-
-// Watch messages for changes to sync to storage and scroll
-watch(
-  messages,
-  async () => {
-    if (!isClient.value) return;
-    localStorage.setItem("chatMessages", JSON.stringify(messages.value));
-    if (isChatOpen.value) {
-      await nextTick();
-      scrollToBottom();
-    }
-  },
-  { deep: true },
-);
 </script>
 
 <template>
@@ -504,6 +597,21 @@ watch(
         '!border dark:!border-gray-700 !flex !flex-col',
       ]"
     >
+      <!-- Overlay for initial loading - ALIGNED with main chat -->
+      <div v-if="isInitialLoading" class="chat-loading-overlay">
+        <div class="chat-loading-content">
+          <div
+            class="!h-6 !w-6 !border-4 !border-indigo-600 !border-t-transparent !rounded-full !animate-spin"
+          ></div>
+          <p
+            :class="clientSideTheme && isDark ? '!text-gray-200' : '!text-gray-700'"
+            class="!text-sm"
+          >
+            Loading past conversations...
+          </p>
+        </div>
+      </div>
+
       <!-- Header -->
       <div
         :class="[
@@ -565,12 +673,12 @@ watch(
           <div
             v-if="msg.content.trim()"
             :class="[
-              '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-sm',
+              '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-sm !shadow-md',
               msg.role === 'user'
                 ? '!bg-indigo-600 !text-white'
                 : clientSideTheme && isDark
-                  ? '!bg-gray-800 !text-gray-100'
-                  : '!bg-gray-100 !text-gray-800',
+                  ? '!bg-gray-800 !text-gray-100 !border !border-gray-700'
+                  : '!bg-white !text-gray-800 !border !border-gray-200',
             ]"
           >
             <div class="!flex !justify-between !items-center !mb-1">
@@ -611,21 +719,42 @@ watch(
         <div v-if="loading" class="!flex !justify-start !w-full">
           <div
             :class="[
-              '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-sm',
+              '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-sm !shadow-md',
               clientSideTheme && isDark
-                ? '!bg-gray-800 !text-gray-300'
-                : '!bg-gray-100 !text-gray-600',
+                ? '!bg-gray-800 !text-gray-300 !border !border-gray-700'
+                : '!bg-white !text-gray-600 !border !border-gray-200',
             ]"
           >
-            <div class="!flex !items-center !gap-1">
+            <div class="!flex !justify-between !items-center !mb-1">
+              <span
+                :class="
+                  clientSideTheme && isDark ? '!text-xs !text-gray-400' : '!text-xs !text-gray-500'
+                "
+                >Advocado</span
+              >
+              <span
+                :class="
+                  clientSideTheme && isDark
+                    ? '!text-xs !text-gray-400 !ml-4'
+                    : '!text-xs !text-gray-500 !ml-4'
+                "
+              >
+                {{ formatTime(Date.now()) }}
+              </span>
+            </div>
+            <div class="!flex !items-center">
               <span
                 v-for="(_, i) in 3"
                 :key="i"
                 :class="[
                   '!inline-block !h-1.5 !w-1.5 !rounded-full !animate-pulse',
-                  clientSideTheme && isDark ? '!bg-gray-400' : '!bg-gray-500',
+                  clientSideTheme && isDark ? '!bg-gray-400' : '!bg-gray-300',
                 ]"
-                :style="{ animationDelay: `${i * 0.2}s` }"
+                :style="{
+                  marginLeft: i > 0 ? '0.25rem' : 0,
+                  marginRight: i < 2 ? '0.25rem' : 0,
+                  animationDelay: `${i * 0.2}s`,
+                }"
               ></span>
             </div>
           </div>
@@ -645,7 +774,7 @@ watch(
             v-model="userInput"
             placeholder="Ask something about Steve..."
             :class="[
-              '!flex-1 !rounded-lg !p-2 !text-sm !resize-none !min-h-[2.5rem] !max-h-[100px]',
+              '!flex-1 !rounded-lg !p-2 !text-sm !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0',
               clientSideTheme && isDark
                 ? '!bg-gray-800 !text-gray-100 !placeholder-gray-400'
                 : '!bg-gray-100 !text-gray-800 !placeholder-gray-500',
@@ -656,7 +785,7 @@ watch(
           ></textarea>
           <button
             type="submit"
-            class="!bg-indigo-600 hover:!bg-indigo-700 !text-white !px-3 !rounded-lg !transition-colors !flex !items-center !justify-center"
+            class="!bg-indigo-600 hover:!bg-indigo-700 !text-white !px-3 !rounded-lg !transition-colors !flex !items-center !justify-center !min-w-[48px]"
             :disabled="loading || isInitialLoading"
           >
             <svg
@@ -685,12 +814,12 @@ watch(
       <!-- Feedback Modal -->
       <div
         v-if="showFeedbackModal"
-        class="!absolute !inset-0 !flex !items-center !justify-center !bg-black !bg-opacity-50 !rounded-lg"
+        class="!absolute !inset-0 !flex !items-center !justify-center !bg-black !bg-opacity-50 !rounded-lg !z-50"
       >
         <div
           :class="[
-            '!relative !rounded-lg !p-4 !w-72 !mx-4',
-            clientSideTheme && isDark ? '!bg-gray-800' : '!bg-white',
+            '!relative !rounded-lg !p-4 !w-72 !mx-4 !shadow-xl',
+            clientSideTheme && isDark ? '!bg-gray-800 !text-white' : '!bg-white !text-gray-800',
           ]"
         >
           <h3
@@ -708,9 +837,10 @@ watch(
                 feedback === 'good'
                   ? '!bg-green-500 !text-white'
                   : clientSideTheme && isDark
-                    ? '!bg-gray-700 !text-gray-300'
-                    : '!bg-gray-100 !text-gray-700',
+                    ? '!bg-gray-700 !text-gray-300 !hover:bg-gray-600'
+                    : '!bg-gray-100 !text-gray-700 !hover:bg-gray-200',
               ]"
+              :disabled="isInitialLoading"
               @click="feedback = 'good'"
             >
               Good 👍
@@ -721,9 +851,10 @@ watch(
                 feedback === 'bad'
                   ? '!bg-red-500 !text-white'
                   : clientSideTheme && isDark
-                    ? '!bg-gray-700 !text-gray-300'
-                    : '!bg-gray-100 !text-gray-700',
+                    ? '!bg-gray-700 !text-gray-300 !hover:bg-gray-600'
+                    : '!bg-gray-100 !text-gray-700 !hover:bg-gray-200',
               ]"
+              :disabled="isInitialLoading"
               @click="feedback = 'bad'"
             >
               Bad 👎
@@ -734,19 +865,20 @@ watch(
               :class="[
                 '!px-3 !py-1 !rounded !text-sm !transition-colors',
                 clientSideTheme && isDark
-                  ? '!bg-gray-700 !text-gray-300'
-                  : '!bg-gray-100 !text-gray-700',
+                  ? '!bg-gray-700 !text-gray-300 !hover:bg-gray-600'
+                  : '!bg-gray-100 !text-gray-700 !hover:bg-gray-200',
               ]"
+              :disabled="isInitialLoading"
               @click="closeFeedbackModal"
             >
               Cancel
             </button>
             <button
-              :disabled="!feedback || isEndingChat"
+              :disabled="!feedback || isEndingChat || isInitialLoading"
               :class="[
                 '!px-3 !py-1 !rounded !text-sm !transition-colors',
-                !feedback || isEndingChat
-                  ? '!bg-gray-400 !text-white'
+                !feedback || isEndingChat || isInitialLoading
+                  ? '!bg-gray-400 !text-white !cursor-not-allowed'
                   : '!bg-indigo-600 !text-white hover:!bg-indigo-700',
               ]"
               @click="submitFeedback"
@@ -777,6 +909,30 @@ watch(
 
 ::-webkit-scrollbar-track {
   background: var(--scrollbar-track);
+}
+
+/* Overlay for initial loading - ALIGNED with main chat */
+.chat-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: rgba(255, 255, 255, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: all;
+  border-radius: 0.5rem;
+}
+
+.dark .chat-loading-overlay {
+  background: rgba(30, 30, 30, 0.7);
+}
+
+.chat-loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 /* Markdown content styling */
