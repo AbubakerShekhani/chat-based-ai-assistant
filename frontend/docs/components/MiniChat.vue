@@ -40,10 +40,16 @@ const hasOngoingThread = computed(() => !!threadId.value);
 
 // Witty messages for chat endings
 const wittyMessages = [
-  "Chat session has ended. Ask me anything to start a new conversation!",
-  "Ready for a fresh start! Ask away!",
-  "Previous chat ended. What's on your mind?",
-  "Clean slate! What would you like to discuss?",
+  "Oh my, looks like something is wrong with Advocado 🥑. You can [read about Steve here](/about) or try again later!",
+  "Oops! Advocado seems to have taken a little nap 😴. While you wait, why not [learn about Steve](/about)? Or try again in a moment!",
+  "Looks like Advocado is having a bad hair day! 🌪️ Try again soon, or [check out Steve's profile](/about)!",
+  "Advocado is feeling a bit under the weather today 🤒. Please try again later, or [read about Steve](/about)!",
+  "Advocado is currently doing some avocado yoga to recover 🧘‍♂️. [Browse Steve's info](/about) or try again in a bit!",
+  "Looks like Advocado spilled its guacamole! 🥑💦 While we clean up, [learn about Steve](/about) or try again later!",
+  "Advocado is currently on a quick coffee break ☕. [Read Steve's story](/about) or try again in a moment!",
+  "Looks like Advocado is having a moment... 🤔 Try again soon, or [discover more about Steve](/about)!",
+  "Advocado is practicing its avocado meditation 🧘‍♀️. Please try again later, or [explore Steve's background](/about)!",
+  "Looks like Advocado is doing some emergency guac maintenance! 🛠️ [Check out Steve's profile](/about) or try again in a bit!",
 ];
 
 const getRandomWittyMessage = () => {
@@ -313,42 +319,15 @@ const sendMessage = async (): Promise<void> => {
 };
 
 // --- End Chat & Feedback Modal ---
-const endChat = async () => {
+const endChat = (): void => {
+  if (isEndingChat.value || showFeedbackModal.value) return;
   if (!threadId.value) return;
-  isEndingChat.value = true;
+  showFeedbackModal.value = true;
+  feedback.value = null;
 
-  try {
-    const response = await fetch("https://advocado-agent.vercel.app/thread/resolve", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        threadId: threadId.value,
-        feedback: feedback.value,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to end chat");
-    }
-
-    threadId.value = null;
-    feedback.value = null;
-    localStorage.removeItem("threadId");
-    showFeedbackModal.value = false;
-
-    messages.value = [
-      {
-        role: "assistant",
-        content: getRandomWittyMessage(),
-        timestamp: Date.now(),
-      },
-    ];
-  } catch (error) {
-    console.error("Error ending chat:", error);
-  } finally {
-    isEndingChat.value = false;
+  // Notify other components immediately that we're ending the chat
+  if (isClient.value) {
+    localStorage.setItem("chatEnding", "true");
   }
 };
 
