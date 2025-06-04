@@ -1013,7 +1013,7 @@ onMounted(async (): Promise<void> => {
       </template>
     </LMap>
 
-    <!-- Statistics Panel -->
+    <!-- Statistics Panel - Always visible -->
     <div
       class="stats-panel"
       :class="[
@@ -1073,11 +1073,40 @@ onMounted(async (): Promise<void> => {
           <div class="!opacity-75 !text-xs">Countries</div>
         </div>
       </div>
+
+      <!-- Legend integrated into stats panel on mobile -->
+      <div
+        class="legend-section !mt-3 !pt-3 !border-t !border-opacity-20"
+        :class="isDark ? '!border-gray-600' : '!border-gray-300'"
+      >
+        <h4 class="!text-xs !font-bold !mb-2" :class="isDark ? '!text-gray-200' : '!text-gray-700'">
+          Legend
+        </h4>
+        <div class="!space-y-1.5 !text-xs">
+          <div class="!flex !items-center !gap-2">
+            <div
+              class="!w-4 !h-0.5 !rounded-full !opacity-80"
+              :class="isDark ? '!bg-blue-400' : '!bg-blue-500'"
+            ></div>
+            <span class="!font-medium !text-xs">Flight Routes</span>
+          </div>
+          <div class="!flex !items-center !gap-2">
+            <div
+              class="!w-2.5 !h-4 airport-pin-legend !flex-shrink-0"
+              :class="isDark ? 'pin-dark' : 'pin-light'"
+            ></div>
+            <span class="!font-medium !text-xs">Airports</span>
+          </div>
+          <p class="!text-xs !opacity-70 !leading-tight !italic">
+            Route opacity indicates flight frequency
+          </p>
+        </div>
+      </div>
     </div>
 
-    <!-- Legend -->
+    <!-- Legend Panel - Hidden on mobile -->
     <div
-      class="legend-panel"
+      class="legend-panel !hidden md:!block"
       :class="[
         '!border !shadow-lg',
         isDark
@@ -1122,7 +1151,7 @@ onMounted(async (): Promise<void> => {
     <!-- Route Details Modal -->
     <div
       v-if="showRouteDetails && selectedRoute"
-      class="modal-overlay !fixed !inset-0 !z-50 !bg-black/50 !flex !items-center !justify-center !backdrop-blur-sm"
+      class="modal-overlay !fixed !inset-0 !bg-black/50 !flex !items-center !justify-center !backdrop-blur-sm"
       @click="closeRouteDetails"
     >
       <div
@@ -1218,7 +1247,7 @@ onMounted(async (): Promise<void> => {
     0 4px 6px -2px rgb(0 0 0 / 0.05);
   width: 16rem;
   backdrop-filter: blur(12px);
-  z-index: 1000;
+  z-index: 20;
   border-width: 1px;
   transition: all 0.2s ease-in-out;
 }
@@ -1241,7 +1270,7 @@ onMounted(async (): Promise<void> => {
     0 4px 6px -2px rgb(0 0 0 / 0.05);
   min-width: 11rem;
   backdrop-filter: blur(12px);
-  z-index: 1000;
+  z-index: 20;
   border-width: 1px;
   transition: all 0.2s ease-in-out;
 }
@@ -1251,10 +1280,6 @@ onMounted(async (): Promise<void> => {
   box-shadow:
     0 20px 35px -5px rgb(0 0 0 / 0.15),
     0 10px 10px -5px rgb(0 0 0 / 0.04);
-}
-
-.modal-content {
-  z-index: 1001;
 }
 
 /* Airport pin legend styles */
@@ -1434,27 +1459,11 @@ onMounted(async (): Promise<void> => {
   .stats-panel .stats-grid {
     grid-template-columns: repeat(4, 1fr) !important;
   }
-
-  .legend-panel {
-    position: absolute;
-    bottom: 8rem;
-    right: 1rem;
-    left: 1rem;
-    width: auto;
-    min-width: auto;
-    padding: 0.75rem;
-  }
 }
 
 @media (max-width: 480px) {
   .stats-panel {
     bottom: 0.5rem;
-    left: 0.5rem;
-    right: 0.5rem;
-  }
-
-  .legend-panel {
-    bottom: 6.5rem;
     left: 0.5rem;
     right: 0.5rem;
   }
