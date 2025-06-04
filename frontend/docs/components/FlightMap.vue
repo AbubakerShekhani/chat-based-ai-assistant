@@ -71,11 +71,6 @@ interface ZoomLevels {
   initialZoom: number;
 }
 
-interface MapBounds {
-  southwest: [number, number];
-  northeast: [number, number];
-}
-
 // --- Constants ---
 const LIGHT_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
@@ -346,22 +341,44 @@ const pinIcon = computed<L.Icon<L.IconOptions>>(() => createPinIcon(isDark.value
 // Route colors based on theme
 const routeColor = computed<string>(() => (isDark.value ? "#60a5fa" : "#3b82f6"));
 
-// Function to create curved flight path
+// Function to create curved flight path with great circle route consideration
 const createCurvedPath = (from: [number, number], to: [number, number]): [number, number][] => {
   const [lat1, lng1] = from;
   const [lat2, lng2] = to;
 
+  // Calculate both eastward and westward distances
+  const eastwardDistance = Math.abs(lng2 - lng1);
+  const westwardDistance = 360 - eastwardDistance;
+
+  // Determine if we should go the "long way" (westward) for shorter great circle distance
+  const shouldGoWestward = westwardDistance < eastwardDistance;
+
+  let adjustedLng2 = lng2;
+
+  if (shouldGoWestward) {
+    // Adjust the destination longitude to show continuous westward path
+    if (lng2 > lng1) {
+      // Going west means we need to subtract 360 from destination
+      adjustedLng2 = lng2 - 360;
+    } else {
+      // Going west means we need to add 360 to destination
+      adjustedLng2 = lng2 + 360;
+    }
+  }
+
+  const adjustedTo: [number, number] = [lat2, adjustedLng2];
+
   // Calculate distance to determine curve intensity
-  const distance = Math.sqrt(Math.pow(lat2 - lat1, 2) + Math.pow(lng2 - lng1, 2));
+  const distance = Math.sqrt(Math.pow(lat2 - lat1, 2) + Math.pow(adjustedLng2 - lng1, 2));
 
   // Only add curve for longer distances
   if (distance < 5) {
-    return [from, to];
+    return [from, adjustedTo];
   }
 
   // Calculate midpoint
   const midLat = (lat1 + lat2) / 2;
-  const midLng = (lng1 + lng2) / 2;
+  const midLng = (lng1 + adjustedLng2) / 2;
 
   // Calculate curve offset based on distance and direction
   const curveFactor = Math.min(distance * 0.15, 20); // Limit maximum curve
@@ -370,7 +387,7 @@ const createCurvedPath = (from: [number, number], to: [number, number]): [number
   let curveOffset = curveFactor;
 
   // For east-west flights, curve towards the pole (great circle approximation)
-  if (Math.abs(lng2 - lng1) > Math.abs(lat2 - lat1)) {
+  if (Math.abs(adjustedLng2 - lng1) > Math.abs(lat2 - lat1)) {
     // For northern hemisphere flights, curve north; for southern, curve south
     if (midLat > 0) {
       curveOffset = curveFactor;
@@ -383,8 +400,10 @@ const createCurvedPath = (from: [number, number], to: [number, number]): [number
   }
 
   // Create control point for the curve
-  const controlLat = midLat + (Math.abs(lng2 - lng1) > Math.abs(lat2 - lat1) ? curveOffset : 0);
-  const controlLng = midLng + (Math.abs(lng2 - lng1) <= Math.abs(lat2 - lat1) ? curveOffset : 0);
+  const controlLat =
+    midLat + (Math.abs(adjustedLng2 - lng1) > Math.abs(lat2 - lat1) ? curveOffset : 0);
+  const controlLng =
+    midLng + (Math.abs(adjustedLng2 - lng1) <= Math.abs(lat2 - lat1) ? curveOffset : 0);
 
   // Generate points along the curve (simple quadratic bezier approximation)
   const points: [number, number][] = [];
@@ -398,12 +417,12 @@ const createCurvedPath = (from: [number, number], to: [number, number]): [number
 
     // Quadratic bezier curve formula
     const lat = mt2 * lat1 + 2 * mt * t * controlLat + t2 * lat2;
-    const lng = mt2 * lng1 + 2 * mt * t * controlLng + t2 * lng2;
+    const lng = mt2 * lng1 + 2 * mt * t * controlLng + t2 * adjustedLng2;
 
     points.push([lat, lng]);
   }
 
-  return points.length > 2 ? points : [from, to];
+  return points.length > 2 ? points : [from, adjustedTo];
 };
 
 // Process flight data into routes with opacity-based frequency indication
@@ -468,41 +487,100 @@ const simplifiedRoutes = computed<Route[]>((): Route[] => {
   return routes.value;
 });
 
-// Process airports with flight counts (no size scaling)
+// Process airports with flight counts and handle wrapped coordinates
 const airports = computed<Airport[]>((): Airport[] => {
   const airportMap = new Map<string, Airport>();
+  const wrappedAirports = new Set<string>(); // Track which airports need wrapped versions
 
+  // First pass: collect flight data and identify wrapped routes
   props.flights.forEach((flight: FlightData): void => {
-    // Process origin airport
-    if (AIRPORT_COORDINATES[flight.origin]) {
-      const existing = airportMap.get(flight.origin);
-      if (existing) {
-        existing.flightCount++;
-      } else {
-        const airportData = AIRPORT_COORDINATES[flight.origin];
-        airportMap.set(flight.origin, {
-          ...airportData,
-          flightCount: 1,
-        });
+    const processAirport = (code: string): void => {
+      if (AIRPORT_COORDINATES[code]) {
+        const existing = airportMap.get(code);
+        if (existing) {
+          existing.flightCount++;
+        } else {
+          const airportData = AIRPORT_COORDINATES[code];
+          airportMap.set(code, {
+            ...airportData,
+            flightCount: 1,
+          });
+        }
       }
-    }
+    };
 
-    // Process destination airport
-    if (AIRPORT_COORDINATES[flight.destination]) {
-      const existing = airportMap.get(flight.destination);
-      if (existing) {
-        existing.flightCount++;
-      } else {
-        const airportData = AIRPORT_COORDINATES[flight.destination];
-        airportMap.set(flight.destination, {
-          ...airportData,
-          flightCount: 1,
-        });
+    // Process both airports
+    processAirport(flight.origin);
+    processAirport(flight.destination);
+
+    // Check if this route uses wrapped coordinates
+    if (AIRPORT_COORDINATES[flight.origin] && AIRPORT_COORDINATES[flight.destination]) {
+      const [, lng1] = [
+        AIRPORT_COORDINATES[flight.origin].lat,
+        AIRPORT_COORDINATES[flight.origin].lng,
+      ];
+      const [, lng2] = [
+        AIRPORT_COORDINATES[flight.destination].lat,
+        AIRPORT_COORDINATES[flight.destination].lng,
+      ];
+
+      const eastwardDistance = Math.abs(lng2 - lng1);
+      const westwardDistance = 360 - eastwardDistance;
+      const shouldGoWestward = westwardDistance < eastwardDistance;
+
+      if (shouldGoWestward) {
+        // This route uses wrapped coordinates, so destination needs a wrapped marker
+        wrappedAirports.add(flight.destination);
       }
     }
   });
 
-  return Array.from(airportMap.values());
+  const allAirports = Array.from(airportMap.values());
+
+  // Get the current route bounds to filter wrapped airports
+  const bounds = mapBounds.value;
+
+  // Second pass: create wrapped versions of airports that need them AND are within bounds
+  const wrappedAirportData: Airport[] = [];
+  if (bounds) {
+    const [minLng, maxLng] = [bounds[0][1], bounds[1][1]]; // Extract longitude bounds
+
+    wrappedAirports.forEach((airportCode: string): void => {
+      const originalAirport = airportMap.get(airportCode);
+      if (originalAirport) {
+        const originalLng = originalAirport.lng;
+        let wrappedLng: number;
+
+        // Determine which side to wrap to based on original longitude
+        if (originalLng < 0) {
+          // Negative longitude (Western hemisphere), wrap to positive side
+          wrappedLng = originalLng + 360;
+        } else {
+          // Positive longitude (Eastern hemisphere), wrap to negative side
+          wrappedLng = originalLng - 360;
+        }
+
+        // Only create wrapped airport if it's within the route-based bounds
+        if (wrappedLng >= minLng && wrappedLng <= maxLng) {
+          wrappedAirportData.push({
+            ...originalAirport,
+            code: `${originalAirport.code}-wrapped`, // Unique identifier for wrapped version
+            lng: wrappedLng,
+          });
+        }
+      }
+    });
+  }
+
+  // Filter original airports to only show those within bounds
+  const filteredOriginalAirports = bounds
+    ? allAirports.filter((airport: Airport): boolean => {
+        const [minLng, maxLng] = [bounds[0][1], bounds[1][1]];
+        return airport.lng >= minLng && airport.lng <= maxLng;
+      })
+    : allAirports;
+
+  return [...filteredOriginalAirports, ...wrappedAirportData];
 });
 
 // Simplified airports for performance during zoom
@@ -516,20 +594,33 @@ const simplifiedAirports = computed<Airport[]>((): Airport[] => {
   return airports.value;
 });
 
-// Calculate appropriate zoom levels based on data
+// Calculate appropriate zoom levels based on flight route data (not airports)
 const zoomLevels = computed<ZoomLevels>((): ZoomLevels => {
-  if (airports.value.length === 0) {
+  if (routes.value.length === 0) {
     return { minZoom: 2, maxZoom: 18, initialZoom: 2 };
   }
 
-  const lats = airports.value.map((a: Airport): number => a.lat);
-  const lngs = airports.value.map((a: Airport): number => a.lng);
+  // Collect all coordinates from all flight route paths
+  const allRouteCoordinates: [number, number][] = [];
+
+  routes.value.forEach((route: Route): void => {
+    route.coordinates.forEach((coord: [number, number]): void => {
+      allRouteCoordinates.push(coord);
+    });
+  });
+
+  if (allRouteCoordinates.length === 0) {
+    return { minZoom: 2, maxZoom: 18, initialZoom: 2 };
+  }
+
+  const lats = allRouteCoordinates.map((coord: [number, number]): number => coord[0]);
+  const lngs = allRouteCoordinates.map((coord: [number, number]): number => coord[1]);
 
   const latSpread = Math.max(...lats) - Math.min(...lats);
   const lngSpread = Math.max(...lngs) - Math.min(...lngs);
   const maxSpread = Math.max(latSpread, lngSpread);
 
-  // Calculate appropriate zoom levels based on geographic spread
+  // Calculate appropriate zoom levels based on geographic spread of routes
   let calculatedInitialZoom: number;
   let minZoomOut: number;
 
@@ -562,23 +653,63 @@ const zoomLevels = computed<ZoomLevels>((): ZoomLevels => {
   };
 });
 
-// Calculate map bounds for initial view
-const mapBounds = computed<MapBounds | null>((): MapBounds | null => {
-  if (airports.value.length === 0) return null;
+// Calculate map bounds based on actual flight routes (not airports)
+const mapBounds = computed<[[number, number], [number, number]] | null>(
+  (): [[number, number], [number, number]] | null => {
+    if (routes.value.length === 0) return null;
 
-  const lats = airports.value.map((a: Airport): number => a.lat);
-  const lngs = airports.value.map((a: Airport): number => a.lng);
+    // Collect only the start and end points of routes, not intermediate curved points
+    const routeEndpoints: [number, number][] = [];
 
-  // Add padding based on the spread to ensure nice initial view
-  const latSpread = Math.max(...lats) - Math.min(...lats);
-  const lngSpread = Math.max(...lngs) - Math.min(...lngs);
-  const padding = Math.max(Math.min(Math.max(latSpread, lngSpread) * 0.2, 10), 2);
+    routes.value.forEach((route: Route): void => {
+      // Only use the first and last coordinates (start and end points)
+      if (route.coordinates.length >= 2) {
+        routeEndpoints.push(route.coordinates[0]); // Start point
+        routeEndpoints.push(route.coordinates[route.coordinates.length - 1]); // End point
+      }
+    });
 
-  return {
-    southwest: [Math.min(...lats) - padding, Math.min(...lngs) - padding],
-    northeast: [Math.max(...lats) + padding, Math.max(...lngs) + padding],
-  };
-});
+    if (routeEndpoints.length === 0) return null;
+
+    const lats = routeEndpoints.map((coord: [number, number]): number => coord[0]);
+    const lngs = routeEndpoints.map((coord: [number, number]): number => coord[1]);
+
+    // For longitude, we need to be smarter about wrapped coordinates
+    // Separate normal coordinates from wrapped coordinates
+    const normalLngs = lngs.filter(lng => lng >= -180 && lng <= 180);
+    const wrappedLngs = lngs.filter(lng => lng < -180 || lng > 180);
+
+    let minLng: number, maxLng: number;
+
+    if (wrappedLngs.length > 0 && normalLngs.length > 0) {
+      // We have both normal and wrapped coordinates
+      // This indicates trans-pacific routes
+      const minNormal = Math.min(...normalLngs);
+      const maxWrapped = Math.max(...wrappedLngs);
+
+      // Set bounds to cover from the western edge of normal coords to eastern edge of wrapped coords
+      // But be more restrictive to avoid showing empty areas
+      minLng = Math.max(minNormal - 10, -180); // Add small padding but don't go beyond world edge
+      maxLng = Math.min(maxWrapped + 10, 360); // Add small padding but don't go too far
+    } else {
+      // Only normal coordinates or only wrapped coordinates
+      minLng = Math.min(...lngs);
+      maxLng = Math.max(...lngs);
+    }
+
+    // Add conservative padding for latitude
+    const latSpread = Math.max(...lats) - Math.min(...lats);
+    const latPadding = Math.max(Math.min(latSpread * 0.15, 8), 2);
+
+    // More restrictive longitude padding
+    const lngPadding = Math.max(Math.min((maxLng - minLng) * 0.05, 5), 2);
+
+    return [
+      [Math.min(...lats) - latPadding, minLng - lngPadding], // Southwest
+      [Math.max(...lats) + latPadding, maxLng + lngPadding], // Northeast
+    ];
+  },
+);
 
 // Statistics
 const statistics = computed<Statistics>(
@@ -615,6 +746,9 @@ const onMapReady = async (): Promise<void> => {
     map.setMaxZoom(maxZoom);
     initialZoom.value = calcInitialZoom;
 
+    // Set dynamic bounds based on flight routes
+    map.setMaxBounds(bounds);
+
     // Aggressive performance optimizations
     if (map.options) {
       map.options.fadeAnimation = false;
@@ -641,7 +775,7 @@ const onMapReady = async (): Promise<void> => {
     });
 
     // Fit bounds to show all data with calculated zoom level
-    map.fitBounds([bounds.southwest, bounds.northeast], {
+    map.fitBounds(bounds, {
       padding: [20, 20],
       animate: false,
       maxZoom: calcInitialZoom,
@@ -698,10 +832,10 @@ onMounted((): void => {
         // Zoom restrictions will be set dynamically in onMapReady
         minZoom: zoomLevels.minZoom,
         maxZoom: zoomLevels.maxZoom,
-        // Restrict horizontal scrolling to prevent world duplication
-        maxBounds: [
-          [-90, -180],
-          [90, 180],
+        // Dynamic bounds based on actual flight routes - more restrictive
+        maxBounds: mapBounds || [
+          [-85, -175],
+          [85, 175],
         ],
         maxBoundsViscosity: 1.0,
         // Aggressive performance optimizations
