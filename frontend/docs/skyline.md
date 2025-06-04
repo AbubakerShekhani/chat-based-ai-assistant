@@ -1303,10 +1303,10 @@ const flightData = [
     time: "01:55:00",
     origin: "SIN",
     destination: "CGK",
-    flightNumber: "CTV523",
+    flightNumber: "QG523",
     departureDateTime: "2023-07-03T01:55:00",
     arrivalDateTime: "2023-07-03T02:55:00",
-    airline: "CTV",
+    airline: "QG",
     aircraft: null,
     class: null,
     seat: null
@@ -1316,10 +1316,10 @@ const flightData = [
     time: "09:20:00",
     origin: "CGK",
     destination: "SIN",
-    flightNumber: "CTV526",
+    flightNumber: "QG526",
     departureDateTime: "2023-07-29T09:20:00",
     arrivalDateTime: "2023-07-29T11:00:00",
-    airline: "CTV",
+    airline: "QG",
     aircraft: null,
     class: null,
     seat: null
@@ -1355,10 +1355,10 @@ const flightData = [
     time: "12:00:00",
     origin: "SIN",
     destination: "CGK",
-    flightNumber: "CTV527",
+    flightNumber: "QG527",
     departureDateTime: "2023-08-31T12:00:00",
     arrivalDateTime: "2023-08-31T13:00:00",
-    airline: "CTV",
+    airline: "QG",
     aircraft: null,
     class: null,
     seat: null
@@ -1368,10 +1368,10 @@ const flightData = [
     time: "09:20:00",
     origin: "CGK",
     destination: "SIN",
-    flightNumber: "CTV526",
+    flightNumber: "QG526",
     departureDateTime: "2023-09-05T09:20:00",
     arrivalDateTime: "2023-09-05T11:20:00",
-    airline: "CTV",
+    airline: "QG",
     aircraft: null,
     class: null,
     seat: null
@@ -1407,10 +1407,10 @@ const flightData = [
     time: "12:00:00",
     origin: "SIN",
     destination: "CGK",
-    flightNumber: "CTV527",
+    flightNumber: "QG527",
     departureDateTime: "2023-11-18T12:00:00",
     arrivalDateTime: "2023-11-18T13:50:00",
-    airline: "CTV",
+    airline: "QG",
     aircraft: null,
     class: null,
     seat: null
@@ -1689,6 +1689,58 @@ const flightData = [
     seat: null
   },
   {
+    date: "2024-12-23",
+    time: "08:55:00",
+    origin: "SIN",
+    destination: "TPE",
+    flightNumber: "TR874",
+    departureDateTime: "2024-12-23T08:55:00",
+    arrivalDateTime: "2024-12-23T13:40:00",
+    airline: "TR",
+    aircraft: null,
+    class: null,
+    seat: null
+  },
+  {
+    date: "2024-12-29",
+    time: "01:30:00",
+    origin: "TPE",
+    destination: "SIN",
+    flightNumber: "TR897",
+    departureDateTime: "2024-12-29T01:30:00",
+    arrivalDateTime: "2024-12-29T06:15:00",
+    airline: "TR",
+    aircraft: null,
+    class: null,
+    seat: null
+  },
+  {
+    date: "2025-01-26",
+    time: "14:40:00",
+    origin: "SIN",
+    destination: "CGK",
+    flightNumber: "3K203",
+    departureDateTime: "2025-01-26T14:40:00",
+    arrivalDateTime: "2025-01-26T15:35:00",
+    airline: "3K",
+    aircraft: "Airbus A320",
+    class: "Starter Plus",
+    seat: "7C"
+  },
+  {
+    date: "2025-02-09",
+    time: "16:15:00",
+    origin: "CGK",
+    destination: "SIN",
+    flightNumber: "3K204",
+    departureDateTime: "2025-02-09T16:15:00",
+    arrivalDateTime: "2025-02-09T19:15:00",
+    airline: "3K",
+    aircraft: "Airbus A320",
+    class: "Starter Plus",
+    seat: null
+  },
+  {
    date: "2025-03-19",
    time: "22:20:00",
    origin: "SIN",
@@ -1726,7 +1778,33 @@ const flightData = [
    aircraft: "789",
    class: "Economy Class : S",
    seat: "22J,22K"
- }
+ },
+  {
+    date: "2025-04-26",
+    time: "10:10:00",
+    origin: "SIN",
+    destination: "CGK",
+    flightNumber: "QG523",
+    departureDateTime: "2025-04-26T10:10:00",
+    arrivalDateTime: "2025-04-26T11:00:00",
+    airline: "QG",
+    aircraft: null,
+    class: null,
+    seat: null
+  },
+  {
+    date: "2025-05-04",
+    time: "17:10:00",
+    origin: "CGK",
+    destination: "SIN",
+    flightNumber: "QG526",
+    departureDateTime: "2025-05-04T17:10:00",
+    arrivalDateTime: "2025-05-04T20:00:00",
+    airline: "QG",
+    aircraft: null,
+    class: null,
+    seat: null
+  }
 ];
 </script>
 
