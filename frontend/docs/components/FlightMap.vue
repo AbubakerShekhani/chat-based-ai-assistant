@@ -310,14 +310,18 @@ const isMapReady = ref<boolean>(false);
 const currentZoom = ref<number>(2);
 const isZooming = ref<boolean>(false);
 const initialZoom = ref<number>(2);
+const clientSideTheme = ref(false);
+const isClient = ref(false);
 
 // --- Theme & Computed ---
 const { isDark } = useData();
 
 // Tile layer configuration based on theme
-const tileUrl = computed<string>(() => (isDark.value ? DARK_TILE_URL : LIGHT_TILE_URL));
+const tileUrl = computed<string>(() =>
+  clientSideTheme.value && isDark.value ? DARK_TILE_URL : LIGHT_TILE_URL,
+);
 const tileAttribution = computed<string>(() =>
-  isDark.value ? DARK_ATTRIBUTION : LIGHT_ATTRIBUTION,
+  clientSideTheme.value && isDark.value ? DARK_ATTRIBUTION : LIGHT_ATTRIBUTION,
 );
 
 // Create Google Maps styled pin icon
@@ -343,11 +347,13 @@ const createPinIcon = (isDarkMode: boolean): LeafletTypes.Icon<LeafletTypes.Icon
 
 // Pin icon based on theme
 const pinIcon = computed<LeafletTypes.Icon<LeafletTypes.IconOptions> | null>(() =>
-  createPinIcon(isDark.value),
+  createPinIcon(clientSideTheme.value && isDark.value),
 );
 
 // Route colors based on theme
-const routeColor = computed<string>(() => (isDark.value ? "#60a5fa" : "#3b82f6"));
+const routeColor = computed<string>(() =>
+  clientSideTheme.value && isDark.value ? "#60a5fa" : "#3b82f6",
+);
 
 // Function to create curved flight path with great circle route consideration
 const createCurvedPath = (from: [number, number], to: [number, number]): [number, number][] => {
@@ -810,6 +816,11 @@ const formatTime = (timeString: string): string => {
 };
 
 // --- Watchers ---
+watch(clientSideTheme, async (): Promise<void> => {
+  // Debounce theme changes to prevent performance issues
+  await nextTick();
+});
+
 watch(isDark, async (): Promise<void> => {
   // Debounce theme changes to prevent performance issues
   await nextTick();
@@ -817,6 +828,10 @@ watch(isDark, async (): Promise<void> => {
 
 // --- Lifecycle ---
 onMounted(async (): Promise<void> => {
+  // Set client-side flags
+  isClient.value = true;
+  clientSideTheme.value = true;
+
   // Load Leaflet dynamically on client side only
   if (typeof window !== "undefined") {
     try {
@@ -831,7 +846,7 @@ onMounted(async (): Promise<void> => {
 </script>
 
 <template>
-  <div class="flight-map-container" :style="{ height: props.height }">
+  <div v-if="isClient" class="flight-map-container" :style="{ height: props.height }">
     <!-- Map -->
     <LMap
       ref="mapRef"
@@ -872,7 +887,7 @@ onMounted(async (): Promise<void> => {
       }"
       :class="[
         'map-instance !w-full !h-full !rounded-lg !border',
-        isDark ? '!border-gray-700' : '!border-gray-200',
+        clientSideTheme && isDark ? '!border-gray-700' : '!border-gray-200',
       ]"
       @ready="onMapReady"
     >
@@ -942,11 +957,14 @@ onMounted(async (): Promise<void> => {
               autoPan: false,
             }"
           >
-            <div class="popup-content" :class="isDark ? '!text-gray-100' : '!text-gray-800'">
+            <div
+              class="popup-content"
+              :class="clientSideTheme && isDark ? '!text-gray-100' : '!text-gray-800'"
+            >
               <div class="!mb-2">
                 <h3
                   class="!text-sm !font-bold !leading-none !my-1"
-                  :class="isDark ? '!text-blue-400' : '!text-blue-600'"
+                  :class="clientSideTheme && isDark ? '!text-blue-400' : '!text-blue-600'"
                 >
                   {{ airport.code }}
                 </h3>
@@ -956,12 +974,12 @@ onMounted(async (): Promise<void> => {
                 <p class="!opacity-75 !leading-tight">{{ airport.city }}, {{ airport.country }}</p>
                 <div
                   class="!pt-1 !border-t !border-opacity-20"
-                  :class="isDark ? '!border-gray-600' : '!border-gray-300'"
+                  :class="clientSideTheme && isDark ? '!border-gray-600' : '!border-gray-300'"
                 >
                   <p class="!text-xs !opacity-70 !leading-tight !my-1">
                     <span
                       class="!font-medium"
-                      :class="isDark ? '!text-orange-400' : '!text-orange-600'"
+                      :class="clientSideTheme && isDark ? '!text-orange-400' : '!text-orange-600'"
                       >{{ airport.flightCount }}</span
                     >
                     flights
@@ -980,8 +998,8 @@ onMounted(async (): Promise<void> => {
           :key="`dot-${airport.code}`"
           :lat-lng="[airport.lat, airport.lng]"
           :radius="4"
-          :color="isDark ? '#fbbf24' : '#92400e'"
-          :fill-color="isDark ? '#f59e0b' : '#d97706'"
+          :color="clientSideTheme && isDark ? '#fbbf24' : '#92400e'"
+          :fill-color="clientSideTheme && isDark ? '#f59e0b' : '#d97706'"
           :weight="1"
           :opacity="1"
           :fill-opacity="0.8"
@@ -1002,7 +1020,10 @@ onMounted(async (): Promise<void> => {
               autoPan: false,
             }"
           >
-            <div class="popup-content" :class="isDark ? '!text-gray-100' : '!text-gray-800'">
+            <div
+              class="popup-content"
+              :class="clientSideTheme && isDark ? '!text-gray-100' : '!text-gray-800'"
+            >
               <h3 class="!font-bold !text-sm !mb-2">{{ airport.code }}</h3>
               <p class="!text-xs !mb-1">{{ airport.name }}</p>
               <p class="!text-xs !mb-1">{{ airport.city }}, {{ airport.country }}</p>
@@ -1018,7 +1039,7 @@ onMounted(async (): Promise<void> => {
       class="stats-panel"
       :class="[
         '!border !shadow-lg',
-        isDark
+        clientSideTheme && isDark
           ? '!bg-gray-900/95 !text-gray-100 !border-gray-600'
           : '!bg-white/95 !text-gray-800 !border-gray-300',
       ]"
@@ -1027,7 +1048,7 @@ onMounted(async (): Promise<void> => {
         <h3
           class="!text-sm !font-bold !text-transparent !bg-clip-text !leading-none !my-1"
           :class="
-            isDark
+            clientSideTheme && isDark
               ? '!bg-gradient-to-r !from-blue-400 !to-purple-400'
               : '!bg-gradient-to-r !from-blue-600 !to-purple-600'
           "
@@ -1039,7 +1060,7 @@ onMounted(async (): Promise<void> => {
         <div class="!text-center">
           <div
             class="!text-base !font-bold !mb-0.5"
-            :class="isDark ? '!text-blue-400' : '!text-blue-600'"
+            :class="clientSideTheme && isDark ? '!text-blue-400' : '!text-blue-600'"
           >
             {{ statistics.totalFlights }}
           </div>
@@ -1048,7 +1069,7 @@ onMounted(async (): Promise<void> => {
         <div class="!text-center">
           <div
             class="!text-base !font-bold !mb-0.5"
-            :class="isDark ? '!text-green-400' : '!text-green-600'"
+            :class="clientSideTheme && isDark ? '!text-green-400' : '!text-green-600'"
           >
             {{ statistics.uniqueRoutes }}
           </div>
@@ -1057,7 +1078,7 @@ onMounted(async (): Promise<void> => {
         <div class="!text-center">
           <div
             class="!text-base !font-bold !mb-0.5"
-            :class="isDark ? '!text-orange-400' : '!text-orange-600'"
+            :class="clientSideTheme && isDark ? '!text-orange-400' : '!text-orange-600'"
           >
             {{ statistics.airportsVisited }}
           </div>
@@ -1066,7 +1087,7 @@ onMounted(async (): Promise<void> => {
         <div class="!text-center">
           <div
             class="!text-base !font-bold !mb-0.5"
-            :class="isDark ? '!text-purple-400' : '!text-purple-600'"
+            :class="clientSideTheme && isDark ? '!text-purple-400' : '!text-purple-600'"
           >
             {{ statistics.countriesVisited }}
           </div>
@@ -1077,23 +1098,26 @@ onMounted(async (): Promise<void> => {
       <!-- Legend integrated into stats panel on mobile -->
       <div
         class="legend-section !mt-3 !pt-3 !border-t !border-opacity-20"
-        :class="isDark ? '!border-gray-600' : '!border-gray-300'"
+        :class="clientSideTheme && isDark ? '!border-gray-600' : '!border-gray-300'"
       >
-        <h4 class="!text-xs !font-bold !mb-2" :class="isDark ? '!text-gray-200' : '!text-gray-700'">
+        <h4
+          class="!text-xs !font-bold !mb-2"
+          :class="clientSideTheme && isDark ? '!text-gray-200' : '!text-gray-700'"
+        >
           Legend
         </h4>
         <div class="!space-y-1.5 !text-xs">
           <div class="!flex !items-center !gap-2">
             <div
               class="!w-4 !h-0.5 !rounded-full !opacity-80"
-              :class="isDark ? '!bg-blue-400' : '!bg-blue-500'"
+              :class="clientSideTheme && isDark ? '!bg-blue-400' : '!bg-blue-500'"
             ></div>
             <span class="!font-medium !text-xs">Flight Routes</span>
           </div>
           <div class="!flex !items-center !gap-2">
             <div
               class="!w-2.5 !h-4 airport-pin-legend !flex-shrink-0"
-              :class="isDark ? 'pin-dark' : 'pin-light'"
+              :class="clientSideTheme && isDark ? 'pin-dark' : 'pin-light'"
             ></div>
             <span class="!font-medium !text-xs">Airports</span>
           </div>
@@ -1109,7 +1133,7 @@ onMounted(async (): Promise<void> => {
       class="legend-panel !hidden md:!block"
       :class="[
         '!border !shadow-lg',
-        isDark
+        clientSideTheme && isDark
           ? '!bg-gray-900/95 !text-gray-100 !border-gray-600'
           : '!bg-white/95 !text-gray-800 !border-gray-300',
       ]"
@@ -1117,7 +1141,7 @@ onMounted(async (): Promise<void> => {
       <div class="!mb-3">
         <h4
           class="!text-sm !font-bold !leading-none !my-1"
-          :class="isDark ? '!text-gray-200' : '!text-gray-700'"
+          :class="clientSideTheme && isDark ? '!text-gray-200' : '!text-gray-700'"
         >
           Legend
         </h4>
@@ -1126,20 +1150,20 @@ onMounted(async (): Promise<void> => {
         <div class="!flex !items-center !gap-2.5">
           <div
             class="!w-5 !h-0.5 !rounded-full !opacity-80"
-            :class="isDark ? '!bg-blue-400' : '!bg-blue-500'"
+            :class="clientSideTheme && isDark ? '!bg-blue-400' : '!bg-blue-500'"
           ></div>
           <span class="!font-medium">Flight Routes</span>
         </div>
         <div class="!flex !items-center !gap-2.5">
           <div
             class="!w-3 !h-5 airport-pin-legend !flex-shrink-0"
-            :class="isDark ? 'pin-dark' : 'pin-light'"
+            :class="clientSideTheme && isDark ? 'pin-dark' : 'pin-light'"
           ></div>
           <span class="!font-medium">Airports</span>
         </div>
         <div
           class="!pt-1 !border-t !border-opacity-20"
-          :class="isDark ? '!border-gray-600' : '!border-gray-300'"
+          :class="clientSideTheme && isDark ? '!border-gray-600' : '!border-gray-300'"
         >
           <p class="!text-xs !opacity-70 !leading-tight !italic !my-1">
             Route opacity indicates flight frequency
@@ -1152,16 +1176,18 @@ onMounted(async (): Promise<void> => {
     <div
       v-if="showRouteDetails && selectedRoute"
       class="modal-overlay !fixed !inset-0 !bg-black/50 !flex !items-center !justify-center !backdrop-blur-sm"
+      style="z-index: 9999"
       @click="closeRouteDetails"
     >
       <div
         class="modal-content !p-6 !rounded-lg !shadow-xl !max-w-md !w-full !mx-4 !max-h-96 !overflow-y-auto"
         :class="[
           '!border',
-          isDark
+          clientSideTheme && isDark
             ? '!bg-gray-800 !text-gray-100 !border-gray-700'
             : '!bg-white !text-gray-800 !border-gray-200',
         ]"
+        style="z-index: 10000"
         @click.stop
       >
         <div class="!flex !justify-between !items-center !mb-4">
@@ -1198,7 +1224,7 @@ onMounted(async (): Promise<void> => {
               v-for="(flight, index) in selectedRoute.flights.slice(0, 10)"
               :key="index"
               class="!text-xs !p-2 !rounded !transition-colors"
-              :class="isDark ? '!bg-gray-700' : '!bg-gray-50'"
+              :class="clientSideTheme && isDark ? '!bg-gray-700' : '!bg-gray-50'"
             >
               <div class="!flex !justify-between !items-center">
                 <span class="!font-medium">{{ flight.flightNumber }}</span>
@@ -1217,6 +1243,20 @@ onMounted(async (): Promise<void> => {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Fallback for SSR -->
+    <div
+      v-else
+      class="flight-map-container !flex !items-center !justify-center !bg-gray-100 dark:!bg-gray-800"
+      :style="{ height: props.height }"
+    >
+      <div class="!text-center !p-8">
+        <div
+          class="!w-8 !h-8 !border-4 !border-blue-600 !border-t-transparent !rounded-full !animate-spin !mx-auto !mb-4"
+        ></div>
+        <p class="!text-gray-600 dark:!text-gray-400">Loading flight map...</p>
       </div>
     </div>
   </div>
@@ -1247,7 +1287,7 @@ onMounted(async (): Promise<void> => {
     0 4px 6px -2px rgb(0 0 0 / 0.05);
   width: 16rem;
   backdrop-filter: blur(12px);
-  z-index: 20;
+  z-index: 100;
   border-width: 1px;
   transition: all 0.2s ease-in-out;
 }
@@ -1270,7 +1310,7 @@ onMounted(async (): Promise<void> => {
     0 4px 6px -2px rgb(0 0 0 / 0.05);
   min-width: 11rem;
   backdrop-filter: blur(12px);
-  z-index: 20;
+  z-index: 100;
   border-width: 1px;
   transition: all 0.2s ease-in-out;
 }
