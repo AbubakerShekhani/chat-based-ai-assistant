@@ -957,10 +957,32 @@ onMounted(async () => {
               class="popup-content"
               :class="clientSideTheme && isDark ? '!text-gray-100' : '!text-gray-800'"
             >
-              <h3 class="!font-bold !text-sm !mb-2">{{ airport.displayCode }}</h3>
-              <p class="!text-xs !mb-1">{{ airport.name }}</p>
-              <p class="!text-xs !mb-1">{{ airport.city }}, {{ airport.country }}</p>
-              <p class="!text-xs !opacity-75">{{ airport.flightCount }} flights</p>
+              <div class="!mb-2">
+                <h3
+                  class="!text-sm !font-bold !leading-none !my-1"
+                  :class="clientSideTheme && isDark ? '!text-blue-400' : '!text-blue-600'"
+                >
+                  {{ airport.displayCode }}
+                </h3>
+              </div>
+              <div class="!space-y-1 !text-xs">
+                <p class="!font-medium !leading-tight">{{ airport.name }}</p>
+                <p class="!opacity-75 !leading-tight">{{ airport.city }}, {{ airport.country }}</p>
+                <div
+                  class="!pt-1 !border-t !border-opacity-20"
+                  :class="clientSideTheme && isDark ? '!border-gray-600' : '!border-gray-300'"
+                >
+                  <p class="!text-xs !opacity-70 !leading-tight !my-1">
+                    <span
+                      class="!font-medium"
+                      :class="clientSideTheme && isDark ? '!text-orange-400' : '!text-orange-600'"
+                    >
+                      {{ airport.flightCount }}
+                    </span>
+                    flights
+                  </p>
+                </div>
+              </div>
             </div>
           </LPopup>
         </LCircleMarker>
