@@ -36,7 +36,7 @@ export default defineConfig({
       { text: "Recommendations", link: "/recommendations" },
       { text: "Stack", link: "/stack" },
       { text: "Gear", link: "/gear" },
-      { text: "Sky Trails", link: "/sky-trails" },
+      { text: "Skyline", link: "/skyline" },
       { text: "Resume", link: "/resume" },
     ],
 
