@@ -12,7 +12,11 @@ import "leaflet/dist/leaflet.css";
 import { ref, computed, watch, nextTick, onMounted } from "vue";
 import { useData } from "vitepress";
 import type { Map as LeafletMap } from "leaflet";
-import L from "leaflet";
+import type * as LeafletTypes from "leaflet";
+
+// Leaflet reference that will be loaded dynamically
+const L = ref<typeof LeafletTypes | null>(null);
+const isLeafletLoaded = ref<boolean>(false);
 
 // --- Enhanced Types ---
 interface FlightData {
@@ -317,11 +321,13 @@ const tileAttribution = computed<string>(() =>
 );
 
 // Create Google Maps styled pin icon
-const createPinIcon = (isDarkMode: boolean): L.Icon<L.IconOptions> => {
+const createPinIcon = (isDarkMode: boolean): LeafletTypes.Icon<LeafletTypes.IconOptions> | null => {
+  if (!L.value || !isLeafletLoaded.value) return null;
+
   const color = isDarkMode ? "#f59e0b" : "#d97706";
   const shadowColor = isDarkMode ? "#92400e" : "#78350f";
 
-  return L.divIcon({
+  return L.value.divIcon({
     html: `
       <svg width="24" height="36" viewBox="0 0 24 36" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M12 0C5.373 0 0 5.373 0 12c0 9 12 24 12 24s12-15 12-24c0-6.627-5.373-12-12-12z" fill="${color}" stroke="${shadowColor}" stroke-width="1"/>
@@ -332,11 +338,13 @@ const createPinIcon = (isDarkMode: boolean): L.Icon<L.IconOptions> => {
     iconSize: [24, 36] as [number, number],
     iconAnchor: [12, 36] as [number, number],
     popupAnchor: [0, -36] as [number, number],
-  }) as L.Icon<L.IconOptions>;
+  }) as LeafletTypes.Icon<LeafletTypes.IconOptions>;
 };
 
 // Pin icon based on theme
-const pinIcon = computed<L.Icon<L.IconOptions>>(() => createPinIcon(isDark.value));
+const pinIcon = computed<LeafletTypes.Icon<LeafletTypes.IconOptions> | null>(() =>
+  createPinIcon(isDark.value),
+);
 
 // Route colors based on theme
 const routeColor = computed<string>(() => (isDark.value ? "#60a5fa" : "#3b82f6"));
@@ -808,9 +816,17 @@ watch(isDark, async (): Promise<void> => {
 });
 
 // --- Lifecycle ---
-onMounted((): void => {
-  // Additional performance optimizations can be added here if needed
-  // Leaflet canvas optimization is handled through map options
+onMounted(async (): Promise<void> => {
+  // Load Leaflet dynamically on client side only
+  if (typeof window !== "undefined") {
+    try {
+      const leafletModule = await import("leaflet");
+      L.value = leafletModule.default || leafletModule;
+      isLeafletLoaded.value = true;
+    } catch (error) {
+      console.error("Failed to load Leaflet:", error);
+    }
+  }
 });
 </script>
 
@@ -903,7 +919,7 @@ onMounted((): void => {
       </template>
 
       <!-- Airport Pins when zoomed in (> zoom level 4) -->
-      <template v-if="isMapReady && !isZooming && currentZoom > 4">
+      <template v-if="isMapReady && !isZooming && currentZoom > 4 && pinIcon && isLeafletLoaded">
         <LMarker
           v-for="airport in simplifiedAirports"
           :key="`pin-${airport.code}`"
