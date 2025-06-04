@@ -525,10 +525,20 @@ const simplifiedRoutes = computed<Route[]>((): Route[] => {
 // Process airports with flight counts and handle wrapped coordinates
 const airports = computed<Airport[]>((): Airport[] => {
   const airportMap = new Map<string, Airport>();
+  const connectedAirports = new Set<string>(); // Track airports that have visible routes
   const wrappedAirports = new Set<string>(); // Track which airports need wrapped versions
 
-  // First pass: collect flight data and identify wrapped routes
+  // First pass: collect flight data and identify connected airports and wrapped routes
   props.flights.forEach((flight: FlightData): void => {
+    // Validate that both origin and destination are actual airports
+    if (!AIRPORT_COORDINATES[flight.origin] || !AIRPORT_COORDINATES[flight.destination]) {
+      return;
+    }
+
+    // Add both airports to connected set
+    connectedAirports.add(flight.origin);
+    connectedAirports.add(flight.destination);
+
     const processAirport = (code: string): void => {
       if (AIRPORT_COORDINATES[code]) {
         const existing = airportMap.get(code);
@@ -550,28 +560,24 @@ const airports = computed<Airport[]>((): Airport[] => {
     processAirport(flight.destination);
 
     // Check if this route uses wrapped coordinates
-    if (AIRPORT_COORDINATES[flight.origin] && AIRPORT_COORDINATES[flight.destination]) {
-      const [, lng1] = [
-        AIRPORT_COORDINATES[flight.origin].lat,
-        AIRPORT_COORDINATES[flight.origin].lng,
-      ];
-      const [, lng2] = [
-        AIRPORT_COORDINATES[flight.destination].lat,
-        AIRPORT_COORDINATES[flight.destination].lng,
-      ];
+    const [, lng1] = [
+      AIRPORT_COORDINATES[flight.origin].lat,
+      AIRPORT_COORDINATES[flight.origin].lng,
+    ];
+    const [, lng2] = [
+      AIRPORT_COORDINATES[flight.destination].lat,
+      AIRPORT_COORDINATES[flight.destination].lng,
+    ];
 
-      const eastwardDistance = Math.abs(lng2 - lng1);
-      const westwardDistance = 360 - eastwardDistance;
-      const shouldGoWestward = westwardDistance < eastwardDistance;
+    const eastwardDistance = Math.abs(lng2 - lng1);
+    const westwardDistance = 360 - eastwardDistance;
+    const shouldGoWestward = westwardDistance < eastwardDistance;
 
-      if (shouldGoWestward) {
-        // This route uses wrapped coordinates, so destination needs a wrapped marker
-        wrappedAirports.add(flight.destination);
-      }
+    if (shouldGoWestward) {
+      // This route uses wrapped coordinates, so destination needs a wrapped marker
+      wrappedAirports.add(flight.destination);
     }
   });
-
-  const allAirports = Array.from(airportMap.values());
 
   // Get the current route bounds to filter wrapped airports
   const bounds = mapBounds.value;
@@ -583,7 +589,8 @@ const airports = computed<Airport[]>((): Airport[] => {
 
     wrappedAirports.forEach((airportCode: string): void => {
       const originalAirport = airportMap.get(airportCode);
-      if (originalAirport) {
+      if (originalAirport && connectedAirports.has(airportCode)) {
+        // Only if airport is connected
         const originalLng = originalAirport.lng;
         let wrappedLng: number;
 
@@ -609,25 +616,73 @@ const airports = computed<Airport[]>((): Airport[] => {
     });
   }
 
-  // Filter original airports to only show those within bounds
-  const filteredOriginalAirports = bounds
-    ? allAirports.filter((airport: Airport): boolean => {
+  // Filter original airports to only show those that:
+  // 1. Are connected (have routes)
+  // 2. Are within bounds (if bounds exist)
+  // 3. Don't have a wrapped version that should be shown instead
+  const filteredOriginalAirports = Array.from(airportMap.values()).filter(
+    (airport: Airport): boolean => {
+      // Must be connected
+      if (!connectedAirports.has(airport.code)) {
+        return false;
+      }
+
+      // Must be within bounds if bounds exist
+      if (bounds) {
         const [minLng, maxLng] = [bounds[0][1], bounds[1][1]];
-        return airport.lng >= minLng && airport.lng <= maxLng;
-      })
-    : allAirports;
+        if (airport.lng < minLng || airport.lng > maxLng) {
+          return false;
+        }
+      }
+
+      // Don't show original if wrapped version exists and is preferred
+      if (wrappedAirports.has(airport.code) && bounds) {
+        const [minLng, maxLng] = [bounds[0][1], bounds[1][1]];
+        const originalLng = airport.lng;
+        let wrappedLng: number;
+
+        if (originalLng < 0) {
+          wrappedLng = originalLng + 360;
+        } else {
+          wrappedLng = originalLng - 360;
+        }
+
+        // If wrapped version would be within bounds, prefer it over original
+        if (wrappedLng >= minLng && wrappedLng <= maxLng) {
+          return false;
+        }
+      }
+
+      return true;
+    },
+  );
 
   return [...filteredOriginalAirports, ...wrappedAirportData];
 });
 
-// Simplified airports for performance during zoom
+// Simplified airports for performance during zoom - now shows airports at all zoom levels
 const simplifiedAirports = computed<Airport[]>((): Airport[] => {
-  if (isZooming.value || currentZoom.value < 3) {
-    // Show fewer airports during zoom
+  if (isZooming.value) {
+    // Show fewer airports during zoom for performance
     return airports.value
       .filter((airport: Airport): boolean => airport.flightCount > 2)
       .slice(0, 15);
   }
+
+  // Show different numbers of airports based on zoom level for performance
+  if (currentZoom.value < 3) {
+    // At very low zoom, show only the busiest airports
+    return airports.value
+      .filter((airport: Airport): boolean => airport.flightCount > 3)
+      .slice(0, 20);
+  } else if (currentZoom.value < 4) {
+    // At low zoom, show moderately busy airports
+    return airports.value
+      .filter((airport: Airport): boolean => airport.flightCount > 1)
+      .slice(0, 30);
+  }
+
+  // At higher zoom levels, show all airports
   return airports.value;
 });
 
