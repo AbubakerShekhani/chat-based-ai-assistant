@@ -607,7 +607,7 @@ const onMapReady = async (): Promise<void> => {
 
   const bounds = mapBounds.value;
   if (bounds && mapRef.value?.leafletObject) {
-    const map: LeafletMap = mapRef.value.leafletObject;
+    const map: LeafletMap = mapRef.value.leafletObject as LeafletMap;
 
     // Set zoom limits based on calculated values
     const { minZoom, maxZoom, initialZoom: calcInitialZoom } = zoomLevels.value;
@@ -698,6 +698,12 @@ onMounted((): void => {
         // Zoom restrictions will be set dynamically in onMapReady
         minZoom: zoomLevels.minZoom,
         maxZoom: zoomLevels.maxZoom,
+        // Restrict horizontal scrolling to prevent world duplication
+        maxBounds: [
+          [-90, -180],
+          [90, 180],
+        ],
+        maxBoundsViscosity: 1.0,
         // Aggressive performance optimizations
         preferCanvas: true,
         zoomAnimation: true,
@@ -787,10 +793,31 @@ onMounted((): void => {
             }"
           >
             <div class="popup-content" :class="isDark ? '!text-gray-100' : '!text-gray-800'">
-              <h3 class="!font-bold !text-sm !mb-2">{{ airport.code }}</h3>
-              <p class="!text-xs !mb-1">{{ airport.name }}</p>
-              <p class="!text-xs !mb-1">{{ airport.city }}, {{ airport.country }}</p>
-              <p class="!text-xs !opacity-75">{{ airport.flightCount }} flights</p>
+              <div class="!mb-2">
+                <h3
+                  class="!text-sm !font-bold !leading-none !my-1"
+                  :class="isDark ? '!text-blue-400' : '!text-blue-600'"
+                >
+                  {{ airport.code }}
+                </h3>
+              </div>
+              <div class="!space-y-1 !text-xs">
+                <p class="!font-medium !leading-tight">{{ airport.name }}</p>
+                <p class="!opacity-75 !leading-tight">{{ airport.city }}, {{ airport.country }}</p>
+                <div
+                  class="!pt-1 !border-t !border-opacity-20"
+                  :class="isDark ? '!border-gray-600' : '!border-gray-300'"
+                >
+                  <p class="!text-xs !opacity-70 !leading-tight !my-1">
+                    <span
+                      class="!font-medium"
+                      :class="isDark ? '!text-orange-400' : '!text-orange-600'"
+                      >{{ airport.flightCount }}</span
+                    >
+                    flights
+                  </p>
+                </div>
+              </div>
             </div>
           </LPopup>
         </LMarker>
@@ -1096,11 +1123,42 @@ onMounted((): void => {
 :deep(.custom-popup .leaflet-popup-content-wrapper) {
   background: var(--vp-c-bg) !important;
   border-color: var(--vp-c-border) !important;
+  border-radius: 0.75rem !important;
+  padding: 0.75rem !important;
+  box-shadow:
+    0 10px 25px -3px rgb(0 0 0 / 0.1),
+    0 4px 6px -2px rgb(0 0 0 / 0.05) !important;
+  backdrop-filter: blur(12px) !important;
+  border-width: 1px !important;
+}
+
+:deep(.custom-popup .leaflet-popup-content) {
+  margin: 0 !important;
+  font-family: inherit !important;
 }
 
 :deep(.custom-popup .leaflet-popup-tip) {
   background: var(--vp-c-bg) !important;
   border-color: var(--vp-c-border) !important;
+}
+
+:deep(.custom-popup .leaflet-popup-close-button) {
+  color: var(--vp-c-text-2) !important;
+  font-size: 18px !important;
+  font-weight: bold !important;
+  right: 8px !important;
+  top: 8px !important;
+  width: 20px !important;
+  height: 20px !important;
+  text-align: center !important;
+  line-height: 20px !important;
+  border-radius: 50% !important;
+  transition: all 0.15s ease !important;
+}
+
+:deep(.custom-popup .leaflet-popup-close-button:hover) {
+  background: var(--vp-c-bg-soft) !important;
+  color: var(--vp-c-text-1) !important;
 }
 
 /* Custom pin icon styles */
