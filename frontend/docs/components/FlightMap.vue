@@ -45,6 +45,7 @@ interface Route {
 
 interface Airport {
   code: string;
+  displayCode: string; // New: display name separate from unique identifier
   lat: number;
   lng: number;
   name: string;
@@ -85,7 +86,7 @@ const DARK_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
 // Airport coordinates database - ONLY airport IATA codes
-const AIRPORT_COORDINATES: Record<string, Omit<Airport, "flightCount">> = {
+const AIRPORT_COORDINATES: Record<string, Omit<Airport, "flightCount" | "displayCode">> = {
   SIN: {
     code: "SIN",
     lat: 1.3644,
@@ -329,6 +330,10 @@ const initialZoom = ref<number>(2);
 const clientSideTheme = ref(false);
 const isClient = ref(false);
 
+// New: Mobile panel collapse states
+const isStatsPanelCollapsed = ref<boolean>(false);
+const isMobile = ref<boolean>(false);
+
 // --- Theme & Computed ---
 const { isDark } = useData();
 
@@ -533,6 +538,7 @@ const airports = computed<Airport[]>((): Airport[] => {
           const airportData = AIRPORT_COORDINATES[code];
           airportMap.set(code, {
             ...airportData,
+            displayCode: code, // Display code is the same as the IATA code for original airports
             flightCount: 1,
           });
         }
@@ -595,6 +601,7 @@ const airports = computed<Airport[]>((): Airport[] => {
           wrappedAirportData.push({
             ...originalAirport,
             code: `${originalAirport.code}-wrapped`, // Unique identifier for wrapped version
+            displayCode: originalAirport.code, // Display code remains the original IATA code
             lng: wrappedLng,
           });
         }
@@ -751,6 +758,11 @@ const statistics = computed<Statistics>(
   }),
 );
 
+// Check if device is mobile
+const checkMobile = (): void => {
+  isMobile.value = window.innerWidth <= 768;
+};
+
 // --- Event Handlers ---
 const handleRouteClick = (route: Route): void => {
   selectedRoute.value = route;
@@ -760,6 +772,11 @@ const handleRouteClick = (route: Route): void => {
 const closeRouteDetails = (): void => {
   showRouteDetails.value = false;
   selectedRoute.value = null;
+};
+
+// New: Toggle functions for mobile panels
+const toggleStatsPanel = (): void => {
+  isStatsPanelCollapsed.value = !isStatsPanelCollapsed.value;
 };
 
 const onMapReady = async (): Promise<void> => {
@@ -847,6 +864,10 @@ onMounted(async (): Promise<void> => {
   // Set client-side flags
   isClient.value = true;
   clientSideTheme.value = true;
+
+  // Check mobile state and listen for resize
+  checkMobile();
+  window.addEventListener("resize", checkMobile);
 
   // Load Leaflet dynamically on client side only
   if (typeof window !== "undefined") {
@@ -982,7 +1003,7 @@ onMounted(async (): Promise<void> => {
                   class="!text-sm !font-bold !leading-none !my-1"
                   :class="clientSideTheme && isDark ? '!text-blue-400' : '!text-blue-600'"
                 >
-                  {{ airport.code }}
+                  {{ airport.displayCode }}
                 </h3>
               </div>
               <div class="!space-y-1 !text-xs">
@@ -1040,7 +1061,7 @@ onMounted(async (): Promise<void> => {
               class="popup-content"
               :class="clientSideTheme && isDark ? '!text-gray-100' : '!text-gray-800'"
             >
-              <h3 class="!font-bold !text-sm !mb-2">{{ airport.code }}</h3>
+              <h3 class="!font-bold !text-sm !mb-2">{{ airport.displayCode }}</h3>
               <p class="!text-xs !mb-1">{{ airport.name }}</p>
               <p class="!text-xs !mb-1">{{ airport.city }}, {{ airport.country }}</p>
               <p class="!text-xs !opacity-75">{{ airport.flightCount }} flights</p>
@@ -1050,105 +1071,146 @@ onMounted(async (): Promise<void> => {
       </template>
     </LMap>
 
-    <!-- Statistics Panel - Always visible -->
+    <!-- Statistics Panel - Enhanced with mobile collapse -->
     <div
       class="stats-panel"
       :class="[
-        '!border !shadow-lg',
+        '!border !shadow-lg !transition-all !duration-300 !ease-in-out',
         clientSideTheme && isDark
           ? '!bg-gray-900/95 !text-gray-100 !border-gray-600'
           : '!bg-white/95 !text-gray-800 !border-gray-300',
+        isMobile && isStatsPanelCollapsed ? 'collapsed' : '',
       ]"
     >
-      <div class="!mb-2">
-        <h3
-          class="!text-sm !font-bold !text-transparent !bg-clip-text !leading-none !my-1"
-          :class="
-            clientSideTheme && isDark
-              ? '!bg-gradient-to-r !from-blue-400 !to-purple-400'
-              : '!bg-gradient-to-r !from-blue-600 !to-purple-600'
-          "
+      <!-- Mobile collapse button -->
+      <button
+        v-if="isMobile"
+        class="mobile-collapse-btn !absolute !top-2 !right-2 !p-1 !rounded !transition-colors"
+        :class="clientSideTheme && isDark ? 'hover:!bg-gray-800' : 'hover:!bg-gray-100'"
+        @click="toggleStatsPanel"
+      >
+        <svg
+          class="!w-4 !h-4 !transition-transform !duration-300"
+          :class="isStatsPanelCollapsed ? '!rotate-180' : ''"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
         >
-          Flight Statistics
-        </h3>
-      </div>
-      <div class="stats-grid !grid !grid-cols-2 !gap-2 !text-xs">
-        <div class="!text-center">
-          <div
-            class="!text-base !font-bold !mb-0.5"
-            :class="clientSideTheme && isDark ? '!text-blue-400' : '!text-blue-600'"
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M19 9l-7 7-7-7"
+          />
+        </svg>
+      </button>
+
+      <div class="panel-content" :class="isMobile && isStatsPanelCollapsed ? '!hidden' : ''">
+        <div class="!mb-2">
+          <h3
+            class="!text-sm !font-bold !text-transparent !bg-clip-text !leading-none !my-1"
+            :class="
+              clientSideTheme && isDark
+                ? '!bg-gradient-to-r !from-blue-400 !to-purple-400'
+                : '!bg-gradient-to-r !from-blue-600 !to-purple-600'
+            "
           >
-            {{ statistics.totalFlights }}
-          </div>
-          <div class="!opacity-75 !text-xs">Total Flights</div>
+            Flight Statistics
+          </h3>
         </div>
-        <div class="!text-center">
-          <div
-            class="!text-base !font-bold !mb-0.5"
-            :class="clientSideTheme && isDark ? '!text-green-400' : '!text-green-600'"
-          >
-            {{ statistics.uniqueRoutes }}
+        <div class="stats-grid !grid !grid-cols-2 !gap-2 !text-xs">
+          <div class="!text-center">
+            <div
+              class="!text-base !font-bold !mb-0.5"
+              :class="clientSideTheme && isDark ? '!text-blue-400' : '!text-blue-600'"
+            >
+              {{ statistics.totalFlights }}
+            </div>
+            <div class="!opacity-75 !text-xs">Total Flights</div>
           </div>
-          <div class="!opacity-75 !text-xs">Unique Routes</div>
+          <div class="!text-center">
+            <div
+              class="!text-base !font-bold !mb-0.5"
+              :class="clientSideTheme && isDark ? '!text-green-400' : '!text-green-600'"
+            >
+              {{ statistics.uniqueRoutes }}
+            </div>
+            <div class="!opacity-75 !text-xs">Unique Routes</div>
+          </div>
+          <div class="!text-center">
+            <div
+              class="!text-base !font-bold !mb-0.5"
+              :class="clientSideTheme && isDark ? '!text-orange-400' : '!text-orange-600'"
+            >
+              {{ statistics.airportsVisited }}
+            </div>
+            <div class="!opacity-75 !text-xs">Airports</div>
+          </div>
+          <div class="!text-center">
+            <div
+              class="!text-base !font-bold !mb-0.5"
+              :class="clientSideTheme && isDark ? '!text-purple-400' : '!text-purple-600'"
+            >
+              {{ statistics.countriesVisited }}
+            </div>
+            <div class="!opacity-75 !text-xs">Countries</div>
+          </div>
         </div>
-        <div class="!text-center">
-          <div
-            class="!text-base !font-bold !mb-0.5"
-            :class="clientSideTheme && isDark ? '!text-orange-400' : '!text-orange-600'"
+
+        <!-- Legend integrated into stats panel on mobile -->
+        <div
+          class="legend-section !mt-3 !pt-3 !border-t !border-opacity-20 md:!hidden"
+          :class="clientSideTheme && isDark ? '!border-gray-600' : '!border-gray-300'"
+        >
+          <h4
+            class="!text-xs !font-bold !mb-2"
+            :class="clientSideTheme && isDark ? '!text-gray-200' : '!text-gray-700'"
           >
-            {{ statistics.airportsVisited }}
+            Legend
+          </h4>
+          <div class="!space-y-1.5 !text-xs">
+            <div class="!flex !items-center !gap-2">
+              <div
+                class="!w-4 !h-0.5 !rounded-full !opacity-80"
+                :class="clientSideTheme && isDark ? '!bg-blue-400' : '!bg-blue-500'"
+              ></div>
+              <span class="!font-medium !text-xs">Flight Routes</span>
+            </div>
+            <div class="!flex !items-center !gap-2">
+              <div
+                class="!w-2.5 !h-4 airport-pin-legend !flex-shrink-0"
+                :class="clientSideTheme && isDark ? 'pin-dark' : 'pin-light'"
+              ></div>
+              <span class="!font-medium !text-xs">Airports</span>
+            </div>
+            <p class="!text-xs !opacity-70 !leading-tight !italic">
+              Route opacity indicates flight frequency
+            </p>
           </div>
-          <div class="!opacity-75 !text-xs">Airports</div>
-        </div>
-        <div class="!text-center">
-          <div
-            class="!text-base !font-bold !mb-0.5"
-            :class="clientSideTheme && isDark ? '!text-purple-400' : '!text-purple-600'"
-          >
-            {{ statistics.countriesVisited }}
-          </div>
-          <div class="!opacity-75 !text-xs">Countries</div>
         </div>
       </div>
 
-      <!-- Legend integrated into stats panel on mobile -->
+      <!-- Collapsed state indicator -->
       <div
-        class="legend-section !mt-3 !pt-3 !border-t !border-opacity-20"
-        :class="clientSideTheme && isDark ? '!border-gray-600' : '!border-gray-300'"
+        v-if="isMobile && isStatsPanelCollapsed"
+        class="collapsed-indicator !flex !items-center !gap-2 !text-xs !opacity-75"
       >
-        <h4
-          class="!text-xs !font-bold !mb-2"
-          :class="clientSideTheme && isDark ? '!text-gray-200' : '!text-gray-700'"
-        >
-          Legend
-        </h4>
-        <div class="!space-y-1.5 !text-xs">
-          <div class="!flex !items-center !gap-2">
-            <div
-              class="!w-4 !h-0.5 !rounded-full !opacity-80"
-              :class="clientSideTheme && isDark ? '!bg-blue-400' : '!bg-blue-500'"
-            ></div>
-            <span class="!font-medium !text-xs">Flight Routes</span>
-          </div>
-          <div class="!flex !items-center !gap-2">
-            <div
-              class="!w-2.5 !h-4 airport-pin-legend !flex-shrink-0"
-              :class="clientSideTheme && isDark ? 'pin-dark' : 'pin-light'"
-            ></div>
-            <span class="!font-medium !text-xs">Airports</span>
-          </div>
-          <p class="!text-xs !opacity-70 !leading-tight !italic">
-            Route opacity indicates flight frequency
-          </p>
-        </div>
+        <svg class="!w-4 !h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+          />
+        </svg>
       </div>
     </div>
 
-    <!-- Legend Panel - Hidden on mobile -->
+    <!-- Legend Panel - Enhanced with mobile collapse -->
     <div
       class="legend-panel !hidden md:!block"
       :class="[
-        '!border !shadow-lg',
+        '!border !shadow-lg !transition-all !duration-300 !ease-in-out',
         clientSideTheme && isDark
           ? '!bg-gray-900/95 !text-gray-100 !border-gray-600'
           : '!bg-white/95 !text-gray-800 !border-gray-300',
@@ -1311,6 +1373,21 @@ onMounted(async (): Promise<void> => {
   box-shadow:
     0 20px 35px -5px rgb(0 0 0 / 0.15),
     0 10px 10px -5px rgb(0 0 0 / 0.04);
+}
+
+/* Mobile collapsed state */
+.stats-panel.collapsed {
+  padding: 0.5rem;
+  width: auto;
+  min-width: 4rem;
+}
+
+.mobile-collapse-btn {
+  z-index: 1;
+}
+
+.collapsed-indicator {
+  padding: 0.25rem;
 }
 
 .legend-panel {
@@ -1513,6 +1590,12 @@ onMounted(async (): Promise<void> => {
   .stats-panel .stats-grid {
     grid-template-columns: repeat(4, 1fr) !important;
   }
+
+  .stats-panel.collapsed {
+    right: auto;
+    width: auto;
+    left: 1rem;
+  }
 }
 
 @media (max-width: 480px) {
@@ -1520,6 +1603,11 @@ onMounted(async (): Promise<void> => {
     bottom: 0.5rem;
     left: 0.5rem;
     right: 0.5rem;
+  }
+
+  .stats-panel.collapsed {
+    right: auto;
+    left: 0.5rem;
   }
 }
 
