@@ -311,6 +311,14 @@ const AIRPORT_COORDINATES: Record<string, Omit<Airport, "flightCount" | "display
     city: "Toyama",
     country: "Japan",
   },
+  TPE: {
+    code: "TPE",
+    lat: 25.0797,
+    lng: 121.2342,
+    name: "Taiwan Taoyuan International Airport",
+    city: "Taipei",
+    country: "Taiwan",
+  },
 };
 
 // --- Props ---
