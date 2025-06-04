@@ -1687,7 +1687,46 @@ const flightData = [
     aircraft: null,
     class: null,
     seat: null
-  }
+  },
+  {
+   date: "2025-03-19",
+   time: "22:20:00",
+   origin: "SIN",
+   destination: "NRT",
+   flightNumber: "NH844",
+   departureDateTime: "2025-03-19T22:20:00",
+   arrivalDateTime: "2025-03-20T05:55:00",
+   airline: "NH",
+   aircraft: "789",
+   class: "Economy Class : V",
+   seat: "22J,22K"
+ },
+ {
+   date: "2025-04-03",
+   time: "11:55:00",
+   origin: "TOY",
+   destination: "NRT",
+   flightNumber: "NH316",
+   departureDateTime: "2025-04-03T11:55:00",
+   arrivalDateTime: "2025-04-03T13:00:00",
+   airline: "NH",
+   aircraft: "738",
+   class: "Economy Class",
+   seat: "15K,15J"
+ },
+ {
+   date: "2025-04-08",
+   time: "12:40:00",
+   origin: "NRT",
+   destination: "SIN",
+   flightNumber: "NH843",
+   departureDateTime: "2025-04-08T00:40:00",
+   arrivalDateTime: "2025-04-08T06:40:00",
+   airline: "NH",
+   aircraft: "789",
+   class: "Economy Class : S",
+   seat: "22J,22K"
+ }
 ];
 </script>
 

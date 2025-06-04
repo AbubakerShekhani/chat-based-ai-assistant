@@ -294,6 +294,22 @@ const AIRPORT_COORDINATES: Record<string, Omit<Airport, "flightCount">> = {
     city: "Honolulu",
     country: "USA",
   },
+  NRT: {
+    code: "NRT",
+    lat: 35.7647,
+    lng: 140.3864,
+    name: "Narita International Airport",
+    city: "Tokyo",
+    country: "Japan",
+  },
+  TOY: {
+    code: "TOY",
+    lat: 36.6483,
+    lng: 137.1875,
+    name: "Toyama Airport",
+    city: "Toyama",
+    country: "Japan",
+  },
 };
 
 // --- Props ---
@@ -1176,7 +1192,6 @@ onMounted(async (): Promise<void> => {
     <div
       v-if="showRouteDetails && selectedRoute"
       class="modal-overlay !fixed !inset-0 !bg-black/50 !flex !items-center !justify-center !backdrop-blur-sm"
-      style="z-index: 9999"
       @click="closeRouteDetails"
     >
       <div
@@ -1187,7 +1202,6 @@ onMounted(async (): Promise<void> => {
             ? '!bg-gray-800 !text-gray-100 !border-gray-700'
             : '!bg-white !text-gray-800 !border-gray-200',
         ]"
-        style="z-index: 10000"
         @click.stop
       >
         <div class="!flex !justify-between !items-center !mb-4">
@@ -1287,7 +1301,7 @@ onMounted(async (): Promise<void> => {
     0 4px 6px -2px rgb(0 0 0 / 0.05);
   width: 16rem;
   backdrop-filter: blur(12px);
-  z-index: 100;
+  z-index: 20;
   border-width: 1px;
   transition: all 0.2s ease-in-out;
 }
@@ -1310,7 +1324,7 @@ onMounted(async (): Promise<void> => {
     0 4px 6px -2px rgb(0 0 0 / 0.05);
   min-width: 11rem;
   backdrop-filter: blur(12px);
-  z-index: 100;
+  z-index: 20;
   border-width: 1px;
   transition: all 0.2s ease-in-out;
 }
