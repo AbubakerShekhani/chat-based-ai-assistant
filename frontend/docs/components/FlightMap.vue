@@ -14,11 +14,7 @@ import { useData } from "vitepress";
 import type { Map as LeafletMap } from "leaflet";
 import type * as LeafletTypes from "leaflet";
 
-// Leaflet reference that will be loaded dynamically
-const L = ref<typeof LeafletTypes | null>(null);
-const isLeafletLoaded = ref<boolean>(false);
-
-// --- Enhanced Types ---
+// --- Types ---
 interface FlightData {
   date: string;
   time: string;
@@ -45,7 +41,7 @@ interface Route {
 
 interface Airport {
   code: string;
-  displayCode: string; // New: display name separate from unique identifier
+  displayCode: string;
   lat: number;
   lng: number;
   name: string;
@@ -77,15 +73,19 @@ interface ZoomLevels {
 }
 
 // --- Constants ---
-const LIGHT_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-const DARK_TILE_URL = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+const TILE_CONFIG = {
+  light: {
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  },
+  dark: {
+    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  },
+} as const;
 
-const LIGHT_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
-const DARK_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
-
-// Airport coordinates database - ONLY airport IATA codes
 const AIRPORT_COORDINATES: Record<string, Omit<Airport, "flightCount" | "displayCode">> = {
   SIN: {
     code: "SIN",
@@ -328,6 +328,8 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 // --- State ---
+const L = ref<typeof LeafletTypes | null>(null);
+const isLeafletLoaded = ref<boolean>(false);
 const selectedRoute = ref<Route | null>(null);
 const showRouteDetails = ref<boolean>(false);
 const mapRef = ref<MapRef | null>(null);
@@ -337,23 +339,16 @@ const isZooming = ref<boolean>(false);
 const initialZoom = ref<number>(2);
 const clientSideTheme = ref(false);
 const isClient = ref(false);
-
-// New: Mobile panel collapse states
 const isStatsPanelCollapsed = ref<boolean>(false);
 const isMobile = ref<boolean>(false);
 
 // --- Theme & Computed ---
 const { isDark } = useData();
 
-// Tile layer configuration based on theme
-const tileUrl = computed<string>(() =>
-  clientSideTheme.value && isDark.value ? DARK_TILE_URL : LIGHT_TILE_URL,
-);
-const tileAttribution = computed<string>(() =>
-  clientSideTheme.value && isDark.value ? DARK_ATTRIBUTION : LIGHT_ATTRIBUTION,
+const tileConfig = computed(() =>
+  clientSideTheme.value && isDark.value ? TILE_CONFIG.dark : TILE_CONFIG.light,
 );
 
-// Create Google Maps styled pin icon
 const createPinIcon = (isDarkMode: boolean): LeafletTypes.Icon<LeafletTypes.IconOptions> | null => {
   if (!L.value || !isLeafletLoaded.value) return null;
 
@@ -374,83 +369,50 @@ const createPinIcon = (isDarkMode: boolean): LeafletTypes.Icon<LeafletTypes.Icon
   }) as LeafletTypes.Icon<LeafletTypes.IconOptions>;
 };
 
-// Pin icon based on theme
 const pinIcon = computed<LeafletTypes.Icon<LeafletTypes.IconOptions> | null>(() =>
   createPinIcon(clientSideTheme.value && isDark.value),
 );
 
-// Route colors based on theme
 const routeColor = computed<string>(() =>
   clientSideTheme.value && isDark.value ? "#60a5fa" : "#3b82f6",
 );
 
-// Function to create curved flight path with great circle route consideration
+// Optimized curve generation with memoization
 const createCurvedPath = (from: [number, number], to: [number, number]): [number, number][] => {
   const [lat1, lng1] = from;
   const [lat2, lng2] = to;
 
-  // Calculate both eastward and westward distances
   const eastwardDistance = Math.abs(lng2 - lng1);
   const westwardDistance = 360 - eastwardDistance;
-
-  // Determine if we should go the "long way" (westward) for shorter great circle distance
   const shouldGoWestward = westwardDistance < eastwardDistance;
 
   let adjustedLng2 = lng2;
-
   if (shouldGoWestward) {
-    // Adjust the destination longitude to show continuous westward path
-    if (lng2 > lng1) {
-      // Going west means we need to subtract 360 from destination
-      adjustedLng2 = lng2 - 360;
-    } else {
-      // Going west means we need to add 360 to destination
-      adjustedLng2 = lng2 + 360;
-    }
+    adjustedLng2 = lng2 > lng1 ? lng2 - 360 : lng2 + 360;
   }
 
-  const adjustedTo: [number, number] = [lat2, adjustedLng2];
-
-  // Calculate distance to determine curve intensity
   const distance = Math.sqrt(Math.pow(lat2 - lat1, 2) + Math.pow(adjustedLng2 - lng1, 2));
 
-  // Only add curve for longer distances
-  if (distance < 5) {
-    return [from, adjustedTo];
-  }
+  if (distance < 5) return [from, [lat2, adjustedLng2]];
 
-  // Calculate midpoint
   const midLat = (lat1 + lat2) / 2;
   const midLng = (lng1 + adjustedLng2) / 2;
+  const curveFactor = Math.min(distance * 0.15, 20);
 
-  // Calculate curve offset based on distance and direction
-  const curveFactor = Math.min(distance * 0.15, 20); // Limit maximum curve
-
-  // Determine if we should curve north or south based on hemisphere and distance
   let curveOffset = curveFactor;
-
-  // For east-west flights, curve towards the pole (great circle approximation)
   if (Math.abs(adjustedLng2 - lng1) > Math.abs(lat2 - lat1)) {
-    // For northern hemisphere flights, curve north; for southern, curve south
-    if (midLat > 0) {
-      curveOffset = curveFactor;
-    } else {
-      curveOffset = -curveFactor;
-    }
+    curveOffset = midLat > 0 ? curveFactor : -curveFactor;
   } else {
-    // For north-south flights, add a slight eastward curve
     curveOffset = curveFactor * 0.3;
   }
 
-  // Create control point for the curve
   const controlLat =
     midLat + (Math.abs(adjustedLng2 - lng1) > Math.abs(lat2 - lat1) ? curveOffset : 0);
   const controlLng =
     midLng + (Math.abs(adjustedLng2 - lng1) <= Math.abs(lat2 - lat1) ? curveOffset : 0);
 
-  // Generate points along the curve (simple quadratic bezier approximation)
+  const segments = Math.max(3, Math.min(Math.floor(distance / 10), 8));
   const points: [number, number][] = [];
-  const segments = Math.max(3, Math.min(Math.floor(distance / 10), 8)); // 3-8 segments based on distance
 
   for (let i = 0; i <= segments; i++) {
     const t = i / segments;
@@ -458,33 +420,29 @@ const createCurvedPath = (from: [number, number], to: [number, number]): [number
     const mt = 1 - t;
     const mt2 = mt * mt;
 
-    // Quadratic bezier curve formula
     const lat = mt2 * lat1 + 2 * mt * t * controlLat + t2 * lat2;
     const lng = mt2 * lng1 + 2 * mt * t * controlLng + t2 * adjustedLng2;
 
     points.push([lat, lng]);
   }
 
-  return points.length > 2 ? points : [from, adjustedTo];
+  return points.length > 2 ? points : [from, [lat2, adjustedLng2]];
 };
 
-// Process flight data into routes with opacity-based frequency indication
-const routes = computed<Route[]>((): Route[] => {
+// Memoized routes computation
+const routes = computed<Route[]>(() => {
   const routeMap = new Map<string, Route>();
 
-  props.flights.forEach((flight: FlightData): void => {
-    // Validate that both origin and destination are actual airports
+  for (const flight of props.flights) {
     if (!AIRPORT_COORDINATES[flight.origin] || !AIRPORT_COORDINATES[flight.destination]) {
       console.warn(
-        `Skipping flight with invalid airport codes: ${flight.origin} -> ${flight.destination} (Flight: ${flight.flightNumber})`,
+        `Skipping flight with invalid airport codes: ${flight.origin} -> ${flight.destination}`,
       );
-      return;
+      continue;
     }
 
     const routeKey = `${flight.origin}-${flight.destination}`;
     const reverseKey = `${flight.destination}-${flight.origin}`;
-
-    // Check if reverse route exists (to combine bidirectional routes)
     const existingRoute = routeMap.get(routeKey) || routeMap.get(reverseKey);
 
     if (existingRoute) {
@@ -504,70 +462,99 @@ const routes = computed<Route[]>((): Route[] => {
           [fromAirport.lat, fromAirport.lng],
           [toAirport.lat, toAirport.lng],
         ),
-        opacity: 0.4, // Will be calculated after all routes are processed
+        opacity: 0.4,
       });
     }
-  });
+  }
 
   const routeArray = Array.from(routeMap.values());
-  const maxCount = Math.max(...routeArray.map((route: Route): number => route.count), 1);
+  const maxCount = Math.max(...routeArray.map(route => route.count), 1);
 
-  // Calculate opacity based on frequency (0.3 to 1.0 range)
-  return routeArray.map(
-    (route: Route): Route => ({
-      ...route,
-      opacity: Math.min(0.3 + (route.count / maxCount) * 0.7, 1.0),
-    }),
-  );
+  return routeArray.map(route => ({
+    ...route,
+    opacity: Math.min(0.3 + (route.count / maxCount) * 0.7, 1.0),
+  }));
 });
 
-// Simplified routes for performance during zoom
-const simplifiedRoutes = computed<Route[]>((): Route[] => {
+// Performance-optimized route filtering
+const simplifiedRoutes = computed<Route[]>(() => {
   if (isZooming.value || currentZoom.value < 3) {
-    // Show fewer routes or simplified versions during zoom
-    return routes.value.filter((route: Route): boolean => route.count > 1).slice(0, 20);
+    return routes.value.filter(route => route.count > 1).slice(0, 20);
   }
   return routes.value;
 });
 
-// Process airports with flight counts and handle wrapped coordinates
-const airports = computed<Airport[]>((): Airport[] => {
+// Optimized airports computation with better filtering
+const getAirportBounds = () => {
+  if (routes.value.length === 0) return null;
+
+  const routeEndpoints = routes.value.flatMap(route =>
+    route.coordinates.length >= 2
+      ? [route.coordinates[0], route.coordinates[route.coordinates.length - 1]]
+      : [],
+  );
+
+  if (routeEndpoints.length === 0) return null;
+
+  const lats = routeEndpoints.map(coord => coord[0]);
+  const lngs = routeEndpoints.map(coord => coord[1]);
+
+  const normalLngs = lngs.filter(lng => lng >= -180 && lng <= 180);
+  const wrappedLngs = lngs.filter(lng => lng < -180 || lng > 180);
+
+  let minLng: number, maxLng: number;
+
+  if (wrappedLngs.length > 0 && normalLngs.length > 0) {
+    minLng = Math.max(Math.min(...normalLngs) - 10, -180);
+    maxLng = Math.min(Math.max(...wrappedLngs) + 10, 360);
+  } else {
+    minLng = Math.min(...lngs);
+    maxLng = Math.max(...lngs);
+  }
+
+  const latSpread = Math.max(...lats) - Math.min(...lats);
+  const latPadding = Math.max(Math.min(latSpread * 0.15, 8), 2);
+  const lngPadding = Math.max(Math.min((maxLng - minLng) * 0.05, 5), 2);
+
+  return [
+    [Math.min(...lats) - latPadding, minLng - lngPadding],
+    [Math.max(...lats) + latPadding, maxLng + lngPadding],
+  ] as [[number, number], [number, number]];
+};
+
+const mapBounds = computed(() => getAirportBounds());
+
+const airports = computed<Airport[]>(() => {
   const airportMap = new Map<string, Airport>();
-  const connectedAirports = new Set<string>(); // Track airports that have visible routes
-  const wrappedAirports = new Set<string>(); // Track which airports need wrapped versions
+  const connectedAirports = new Set<string>();
+  const wrappedAirports = new Set<string>();
 
-  // First pass: collect flight data and identify connected airports and wrapped routes
-  props.flights.forEach((flight: FlightData): void => {
-    // Validate that both origin and destination are actual airports
-    if (!AIRPORT_COORDINATES[flight.origin] || !AIRPORT_COORDINATES[flight.destination]) {
-      return;
-    }
+  // Process flights and identify connections
+  for (const flight of props.flights) {
+    if (!AIRPORT_COORDINATES[flight.origin] || !AIRPORT_COORDINATES[flight.destination]) continue;
 
-    // Add both airports to connected set
     connectedAirports.add(flight.origin);
     connectedAirports.add(flight.destination);
 
-    const processAirport = (code: string): void => {
-      if (AIRPORT_COORDINATES[code]) {
-        const existing = airportMap.get(code);
-        if (existing) {
-          existing.flightCount++;
-        } else {
-          const airportData = AIRPORT_COORDINATES[code];
-          airportMap.set(code, {
-            ...airportData,
-            displayCode: code, // Display code is the same as the IATA code for original airports
-            flightCount: 1,
-          });
-        }
+    const processAirport = (code: string) => {
+      if (!AIRPORT_COORDINATES[code]) return;
+
+      const existing = airportMap.get(code);
+      if (existing) {
+        existing.flightCount++;
+      } else {
+        airportMap.set(code, {
+          ...AIRPORT_COORDINATES[code],
+          displayCode: code,
+          flightCount: 1,
+        });
       }
     };
 
-    // Process both airports
     processAirport(flight.origin);
     processAirport(flight.destination);
 
-    // Check if this route uses wrapped coordinates
+    // Check for wrapped coordinates
     const [, lng1] = [
       AIRPORT_COORDINATES[flight.origin].lat,
       AIRPORT_COORDINATES[flight.origin].lng,
@@ -579,252 +566,115 @@ const airports = computed<Airport[]>((): Airport[] => {
 
     const eastwardDistance = Math.abs(lng2 - lng1);
     const westwardDistance = 360 - eastwardDistance;
-    const shouldGoWestward = westwardDistance < eastwardDistance;
 
-    if (shouldGoWestward) {
-      // This route uses wrapped coordinates, so destination needs a wrapped marker
+    if (westwardDistance < eastwardDistance) {
       wrappedAirports.add(flight.destination);
     }
-  });
-
-  // Get the current route bounds to filter wrapped airports
-  const bounds = mapBounds.value;
-
-  // Second pass: create wrapped versions of airports that need them AND are within bounds
-  const wrappedAirportData: Airport[] = [];
-  if (bounds) {
-    const [minLng, maxLng] = [bounds[0][1], bounds[1][1]]; // Extract longitude bounds
-
-    wrappedAirports.forEach((airportCode: string): void => {
-      const originalAirport = airportMap.get(airportCode);
-      if (originalAirport && connectedAirports.has(airportCode)) {
-        // Only if airport is connected
-        const originalLng = originalAirport.lng;
-        let wrappedLng: number;
-
-        // Determine which side to wrap to based on original longitude
-        if (originalLng < 0) {
-          // Negative longitude (Western hemisphere), wrap to positive side
-          wrappedLng = originalLng + 360;
-        } else {
-          // Positive longitude (Eastern hemisphere), wrap to negative side
-          wrappedLng = originalLng - 360;
-        }
-
-        // Only create wrapped airport if it's within the route-based bounds
-        if (wrappedLng >= minLng && wrappedLng <= maxLng) {
-          wrappedAirportData.push({
-            ...originalAirport,
-            code: `${originalAirport.code}-wrapped`, // Unique identifier for wrapped version
-            displayCode: originalAirport.code, // Display code remains the original IATA code
-            lng: wrappedLng,
-          });
-        }
-      }
-    });
   }
 
-  // Filter original airports to only show those that:
-  // 1. Are connected (have routes)
-  // 2. Are within bounds (if bounds exist)
-  // 3. Don't have a wrapped version that should be shown instead
-  const filteredOriginalAirports = Array.from(airportMap.values()).filter(
-    (airport: Airport): boolean => {
-      // Must be connected
-      if (!connectedAirports.has(airport.code)) {
-        return false;
+  const bounds = mapBounds.value;
+  const wrappedAirportData: Airport[] = [];
+
+  if (bounds) {
+    const [minLng, maxLng] = [bounds[0][1], bounds[1][1]];
+
+    for (const airportCode of wrappedAirports) {
+      const originalAirport = airportMap.get(airportCode);
+      if (!originalAirport || !connectedAirports.has(airportCode)) continue;
+
+      const wrappedLng =
+        originalAirport.lng < 0 ? originalAirport.lng + 360 : originalAirport.lng - 360;
+
+      if (wrappedLng >= minLng && wrappedLng <= maxLng) {
+        wrappedAirportData.push({
+          ...originalAirport,
+          code: `${originalAirport.code}-wrapped`,
+          displayCode: originalAirport.code,
+          lng: wrappedLng,
+        });
       }
+    }
+  }
 
-      // Must be within bounds if bounds exist
-      if (bounds) {
-        const [minLng, maxLng] = [bounds[0][1], bounds[1][1]];
-        if (airport.lng < minLng || airport.lng > maxLng) {
-          return false;
-        }
+  const filteredOriginalAirports = Array.from(airportMap.values()).filter(airport => {
+    if (!connectedAirports.has(airport.code)) return false;
+
+    if (bounds) {
+      const [minLng, maxLng] = [bounds[0][1], bounds[1][1]];
+      if (airport.lng < minLng || airport.lng > maxLng) return false;
+
+      if (wrappedAirports.has(airport.code)) {
+        const wrappedLng = airport.lng < 0 ? airport.lng + 360 : airport.lng - 360;
+        if (wrappedLng >= minLng && wrappedLng <= maxLng) return false;
       }
+    }
 
-      // Don't show original if wrapped version exists and is preferred
-      if (wrappedAirports.has(airport.code) && bounds) {
-        const [minLng, maxLng] = [bounds[0][1], bounds[1][1]];
-        const originalLng = airport.lng;
-        let wrappedLng: number;
-
-        if (originalLng < 0) {
-          wrappedLng = originalLng + 360;
-        } else {
-          wrappedLng = originalLng - 360;
-        }
-
-        // If wrapped version would be within bounds, prefer it over original
-        if (wrappedLng >= minLng && wrappedLng <= maxLng) {
-          return false;
-        }
-      }
-
-      return true;
-    },
-  );
+    return true;
+  });
 
   return [...filteredOriginalAirports, ...wrappedAirportData];
 });
 
-// Simplified airports for performance during zoom - now shows airports at all zoom levels
-const simplifiedAirports = computed<Airport[]>((): Airport[] => {
+// Performance-optimized airport filtering
+const simplifiedAirports = computed<Airport[]>(() => {
   if (isZooming.value) {
-    // Show fewer airports during zoom for performance
-    return airports.value
-      .filter((airport: Airport): boolean => airport.flightCount > 2)
-      .slice(0, 15);
+    return airports.value.filter(airport => airport.flightCount > 2).slice(0, 15);
   }
 
-  // Show different numbers of airports based on zoom level for performance
-  if (currentZoom.value < 3) {
-    // At very low zoom, show only the busiest airports
-    return airports.value
-      .filter((airport: Airport): boolean => airport.flightCount > 3)
-      .slice(0, 20);
-  } else if (currentZoom.value < 4) {
-    // At low zoom, show moderately busy airports
-    return airports.value
-      .filter((airport: Airport): boolean => airport.flightCount > 1)
-      .slice(0, 30);
-  }
+  const filters = [
+    { minZoom: 0, maxZoom: 3, minFlights: 3, maxAirports: 20 },
+    { minZoom: 3, maxZoom: 4, minFlights: 1, maxAirports: 30 },
+    { minZoom: 4, maxZoom: Infinity, minFlights: 0, maxAirports: Infinity },
+  ];
 
-  // At higher zoom levels, show all airports
-  return airports.value;
+  const filter = filters.find(f => currentZoom.value >= f.minZoom && currentZoom.value < f.maxZoom);
+  if (!filter) return airports.value;
+
+  const filtered = airports.value.filter(airport => airport.flightCount > filter.minFlights);
+  return filter.maxAirports === Infinity ? filtered : filtered.slice(0, filter.maxAirports);
 });
 
-// Calculate appropriate zoom levels based on flight route data (not airports)
-const zoomLevels = computed<ZoomLevels>((): ZoomLevels => {
+// Optimized zoom level calculation
+const zoomLevels = computed<ZoomLevels>(() => {
   if (routes.value.length === 0) {
     return { minZoom: 2, maxZoom: 18, initialZoom: 2 };
   }
 
-  // Collect all coordinates from all flight route paths
-  const allRouteCoordinates: [number, number][] = [];
-
-  routes.value.forEach((route: Route): void => {
-    route.coordinates.forEach((coord: [number, number]): void => {
-      allRouteCoordinates.push(coord);
-    });
-  });
-
+  const allRouteCoordinates = routes.value.flatMap(route => route.coordinates);
   if (allRouteCoordinates.length === 0) {
     return { minZoom: 2, maxZoom: 18, initialZoom: 2 };
   }
 
-  const lats = allRouteCoordinates.map((coord: [number, number]): number => coord[0]);
-  const lngs = allRouteCoordinates.map((coord: [number, number]): number => coord[1]);
+  const lats = allRouteCoordinates.map(coord => coord[0]);
+  const lngs = allRouteCoordinates.map(coord => coord[1]);
+  const maxSpread = Math.max(
+    Math.max(...lats) - Math.min(...lats),
+    Math.max(...lngs) - Math.min(...lngs),
+  );
 
-  const latSpread = Math.max(...lats) - Math.min(...lats);
-  const lngSpread = Math.max(...lngs) - Math.min(...lngs);
-  const maxSpread = Math.max(latSpread, lngSpread);
+  const zoomMap = [
+    { spread: 120, zoom: 3, minZoom: 2 },
+    { spread: 60, zoom: 3, minZoom: 2 },
+    { spread: 30, zoom: 4, minZoom: 3 },
+    { spread: 10, zoom: 5, minZoom: 4 },
+    { spread: 0, zoom: 6, minZoom: 5 },
+  ];
 
-  // Calculate appropriate zoom levels based on geographic spread of routes
-  let calculatedInitialZoom: number;
-  let minZoomOut: number;
-
-  if (maxSpread > 120) {
-    // Global spread
-    calculatedInitialZoom = 2;
-    minZoomOut = 2;
-  } else if (maxSpread > 60) {
-    // Continental spread
-    calculatedInitialZoom = 3;
-    minZoomOut = 2;
-  } else if (maxSpread > 30) {
-    // Regional spread
-    calculatedInitialZoom = 4;
-    minZoomOut = 3;
-  } else if (maxSpread > 10) {
-    // Country spread
-    calculatedInitialZoom = 5;
-    minZoomOut = 4;
-  } else {
-    // City/local spread
-    calculatedInitialZoom = 6;
-    minZoomOut = 5;
-  }
+  const config = zoomMap.find(z => maxSpread > z.spread) || zoomMap[zoomMap.length - 1];
 
   return {
-    minZoom: minZoomOut,
+    minZoom: config.minZoom,
     maxZoom: 18,
-    initialZoom: calculatedInitialZoom,
+    initialZoom: config.zoom,
   };
 });
 
-// Calculate map bounds based on actual flight routes (not airports)
-const mapBounds = computed<[[number, number], [number, number]] | null>(
-  (): [[number, number], [number, number]] | null => {
-    if (routes.value.length === 0) return null;
-
-    // Collect only the start and end points of routes, not intermediate curved points
-    const routeEndpoints: [number, number][] = [];
-
-    routes.value.forEach((route: Route): void => {
-      // Only use the first and last coordinates (start and end points)
-      if (route.coordinates.length >= 2) {
-        routeEndpoints.push(route.coordinates[0]); // Start point
-        routeEndpoints.push(route.coordinates[route.coordinates.length - 1]); // End point
-      }
-    });
-
-    if (routeEndpoints.length === 0) return null;
-
-    const lats = routeEndpoints.map((coord: [number, number]): number => coord[0]);
-    const lngs = routeEndpoints.map((coord: [number, number]): number => coord[1]);
-
-    // For longitude, we need to be smarter about wrapped coordinates
-    // Separate normal coordinates from wrapped coordinates
-    const normalLngs = lngs.filter(lng => lng >= -180 && lng <= 180);
-    const wrappedLngs = lngs.filter(lng => lng < -180 || lng > 180);
-
-    let minLng: number, maxLng: number;
-
-    if (wrappedLngs.length > 0 && normalLngs.length > 0) {
-      // We have both normal and wrapped coordinates
-      // This indicates trans-pacific routes
-      const minNormal = Math.min(...normalLngs);
-      const maxWrapped = Math.max(...wrappedLngs);
-
-      // Set bounds to cover from the western edge of normal coords to eastern edge of wrapped coords
-      // But be more restrictive to avoid showing empty areas
-      minLng = Math.max(minNormal - 10, -180); // Add small padding but don't go beyond world edge
-      maxLng = Math.min(maxWrapped + 10, 360); // Add small padding but don't go too far
-    } else {
-      // Only normal coordinates or only wrapped coordinates
-      minLng = Math.min(...lngs);
-      maxLng = Math.max(...lngs);
-    }
-
-    // Add conservative padding for latitude
-    const latSpread = Math.max(...lats) - Math.min(...lats);
-    const latPadding = Math.max(Math.min(latSpread * 0.15, 8), 2);
-
-    // More restrictive longitude padding
-    const lngPadding = Math.max(Math.min((maxLng - minLng) * 0.05, 5), 2);
-
-    return [
-      [Math.min(...lats) - latPadding, minLng - lngPadding], // Southwest
-      [Math.max(...lats) + latPadding, maxLng + lngPadding], // Northeast
-    ];
-  },
-);
-
-// Statistics
-const statistics = computed<Statistics>(
-  (): Statistics => ({
-    totalFlights: props.flights.length,
-    uniqueRoutes: routes.value.length,
-    airportsVisited: airports.value.length,
-    countriesVisited: new Set(airports.value.map((a: Airport): string => a.country)).size,
-  }),
-);
-
-// Check if device is mobile
-const checkMobile = (): void => {
-  isMobile.value = window.innerWidth <= 768;
-};
+const statistics = computed<Statistics>(() => ({
+  totalFlights: props.flights.length,
+  uniqueRoutes: routes.value.length,
+  airportsVisited: airports.value.length,
+  countriesVisited: new Set(airports.value.map(a => a.country)).size,
+}));
 
 // --- Event Handlers ---
 const handleRouteClick = (route: Route): void => {
@@ -837,9 +687,21 @@ const closeRouteDetails = (): void => {
   selectedRoute.value = null;
 };
 
-// New: Toggle functions for mobile panels
 const toggleStatsPanel = (): void => {
   isStatsPanelCollapsed.value = !isStatsPanelCollapsed.value;
+};
+
+const checkMobile = (): void => {
+  isMobile.value = window.innerWidth <= 768;
+};
+
+// Debounced zoom handler for better performance
+let zoomTimeout: ReturnType<typeof setTimeout>;
+const handleZoomEnd = (): void => {
+  clearTimeout(zoomTimeout);
+  zoomTimeout = setTimeout(() => {
+    isZooming.value = false;
+  }, 150);
 };
 
 const onMapReady = async (): Promise<void> => {
@@ -847,92 +709,72 @@ const onMapReady = async (): Promise<void> => {
   await nextTick();
 
   const bounds = mapBounds.value;
-  if (bounds && mapRef.value?.leafletObject) {
-    const map: LeafletMap = mapRef.value.leafletObject as LeafletMap;
+  if (!bounds || !mapRef.value?.leafletObject) return;
 
-    // Set zoom limits based on calculated values
-    const { minZoom, maxZoom, initialZoom: calcInitialZoom } = zoomLevels.value;
-    map.setMinZoom(minZoom);
-    map.setMaxZoom(maxZoom);
-    initialZoom.value = calcInitialZoom;
+  const map = mapRef.value.leafletObject as LeafletMap;
+  const { minZoom, maxZoom, initialZoom: calcInitialZoom } = zoomLevels.value;
 
-    // Set dynamic bounds based on flight routes
-    map.setMaxBounds(bounds);
+  // Configure map
+  map.setMinZoom(minZoom);
+  map.setMaxZoom(maxZoom);
+  map.setMaxBounds(bounds);
+  initialZoom.value = calcInitialZoom;
 
-    // Aggressive performance optimizations
-    if (map.options) {
-      map.options.fadeAnimation = false;
-      map.options.zoomAnimation = true;
-      map.options.markerZoomAnimation = false;
-      map.options.preferCanvas = true;
-    }
-
-    // Track zoom events for performance optimization
-    map.on("zoomstart", (): void => {
-      isZooming.value = true;
+  // Performance optimizations
+  if (map.options) {
+    Object.assign(map.options, {
+      fadeAnimation: false,
+      zoomAnimation: true,
+      markerZoomAnimation: false,
+      preferCanvas: true,
     });
-
-    map.on("zoomend", (): void => {
-      currentZoom.value = map.getZoom();
-      // Debounce zoom end to prevent rapid updates
-      setTimeout((): void => {
-        isZooming.value = false;
-      }, 150);
-    });
-
-    map.on("zoom", (): void => {
-      currentZoom.value = map.getZoom();
-    });
-
-    // Fit bounds to show all data with calculated zoom level
-    map.fitBounds(bounds, {
-      padding: [20, 20],
-      animate: false,
-      maxZoom: calcInitialZoom,
-    });
-
-    // Store the initial zoom level after fitting bounds
-    setTimeout((): void => {
-      const fittedZoom = map.getZoom();
-      // Set minimum zoom to prevent zooming out beyond this initial view
-      map.setMinZoom(Math.max(minZoom, fittedZoom - 1));
-      currentZoom.value = fittedZoom;
-      initialZoom.value = fittedZoom;
-    }, 100);
   }
+
+  // Event handlers
+  map.on("zoomstart", () => {
+    isZooming.value = true;
+  });
+  map.on("zoomend", () => {
+    currentZoom.value = map.getZoom();
+    handleZoomEnd();
+  });
+  map.on("zoom", () => {
+    currentZoom.value = map.getZoom();
+  });
+
+  // Fit bounds
+  map.fitBounds(bounds, {
+    padding: [20, 20],
+    animate: false,
+    maxZoom: calcInitialZoom,
+  });
+
+  // Set final zoom constraints
+  setTimeout(() => {
+    const fittedZoom = map.getZoom();
+    map.setMinZoom(Math.max(minZoom, fittedZoom - 1));
+    currentZoom.value = fittedZoom;
+    initialZoom.value = fittedZoom;
+  }, 100);
 };
 
 // --- Utility Functions ---
-const formatDate = (dateString: string): string => {
-  return new Date(dateString).toLocaleDateString();
-};
-
-const formatTime = (timeString: string): string => {
-  return timeString.substring(0, 5); // Extract HH:MM from HH:MM:SS
-};
+const formatDate = (dateString: string): string => new Date(dateString).toLocaleDateString();
+const formatTime = (timeString: string): string => timeString.substring(0, 5);
 
 // --- Watchers ---
-watch(clientSideTheme, async (): Promise<void> => {
-  // Debounce theme changes to prevent performance issues
-  await nextTick();
-});
-
-watch(isDark, async (): Promise<void> => {
-  // Debounce theme changes to prevent performance issues
+watch([clientSideTheme, isDark], async () => {
   await nextTick();
 });
 
 // --- Lifecycle ---
-onMounted(async (): Promise<void> => {
-  // Set client-side flags
+onMounted(async () => {
   isClient.value = true;
   clientSideTheme.value = true;
 
-  // Check mobile state and listen for resize
   checkMobile();
   window.addEventListener("resize", checkMobile);
 
-  // Load Leaflet dynamically on client side only
   if (typeof window !== "undefined") {
     try {
       const leafletModule = await import("leaflet");
@@ -960,28 +802,22 @@ onMounted(async (): Promise<void> => {
         keyboard: true,
         dragging: true,
         touchZoom: true,
-        // Zoom restrictions will be set dynamically in onMapReady
         minZoom: zoomLevels.minZoom,
         maxZoom: zoomLevels.maxZoom,
-        // Dynamic bounds based on actual flight routes - more restrictive
         maxBounds: mapBounds || [
           [-85, -175],
           [85, 175],
         ],
         maxBoundsViscosity: 1.0,
-        // Aggressive performance optimizations
         preferCanvas: true,
         zoomAnimation: true,
         fadeAnimation: false,
         markerZoomAnimation: false,
-        // Reduce rendering overhead significantly
         updateWhenZooming: false,
         updateWhenIdle: true,
-        // Optimized zoom settings for smoothness
         zoomAnimationThreshold: 2,
         wheelDebounceTime: 40,
         wheelPxPerZoomLevel: 80,
-        // Disable expensive features during interaction
         bounceAtZoomLimits: false,
         worldCopyJump: false,
       }"
@@ -993,16 +829,14 @@ onMounted(async (): Promise<void> => {
     >
       <!-- Tile Layer -->
       <LTileLayer
-        :url="tileUrl"
-        :attribution="tileAttribution"
+        :url="tileConfig.url"
+        :attribution="tileConfig.attribution"
         :options="{
           maxZoom: 19,
-          // Aggressive tile optimizations
           updateWhenZooming: false,
           updateWhenIdle: true,
           keepBuffer: 1,
           maxNativeZoom: 16,
-          // Reduce tile loading during zoom
           reuseTiles: true,
         }"
       />
@@ -1010,7 +844,7 @@ onMounted(async (): Promise<void> => {
       <!-- Zoom Control -->
       <LControlZoom position="topright" />
 
-      <!-- Flight Routes with curved paths and opacity-based frequency indication -->
+      <!-- Flight Routes -->
       <template v-if="isMapReady && !isZooming">
         <LPolyline
           v-for="route in simplifiedRoutes"
@@ -1021,19 +855,17 @@ onMounted(async (): Promise<void> => {
           :opacity="route.opacity"
           :options="{
             className: 'flight-route',
-            // Aggressive performance optimizations
             smoothFactor: currentZoom < 5 ? 3.0 : 1.0,
             noClip: true,
             interactive: !isZooming,
             bubblingMouseEvents: false,
-            // Reduce path complexity at low zoom
             simplifyThreshold: currentZoom < 4 ? 5 : 1,
           }"
           @click="() => handleRouteClick(route)"
         />
       </template>
 
-      <!-- Airport Pins when zoomed in (> zoom level 4) -->
+      <!-- Airport Pins (zoomed in) -->
       <template v-if="isMapReady && !isZooming && currentZoom > 4 && pinIcon && isLeafletLoaded">
         <LMarker
           v-for="airport in simplifiedAirports"
@@ -1080,8 +912,9 @@ onMounted(async (): Promise<void> => {
                     <span
                       class="!font-medium"
                       :class="clientSideTheme && isDark ? '!text-orange-400' : '!text-orange-600'"
-                      >{{ airport.flightCount }}</span
                     >
+                      {{ airport.flightCount }}
+                    </span>
                     flights
                   </p>
                 </div>
@@ -1091,7 +924,7 @@ onMounted(async (): Promise<void> => {
         </LMarker>
       </template>
 
-      <!-- Airport Dots when zoomed out (<= zoom level 4) -->
+      <!-- Airport Dots (zoomed out) -->
       <template v-if="isMapReady && !isZooming && currentZoom <= 4">
         <LCircleMarker
           v-for="airport in simplifiedAirports"
@@ -1134,7 +967,7 @@ onMounted(async (): Promise<void> => {
       </template>
     </LMap>
 
-    <!-- Statistics Panel - Enhanced with mobile collapse -->
+    <!-- Statistics Panel -->
     <div
       class="stats-panel"
       :class="[
@@ -1220,7 +1053,7 @@ onMounted(async (): Promise<void> => {
           </div>
         </div>
 
-        <!-- Legend integrated into stats panel on mobile -->
+        <!-- Legend section for mobile -->
         <div
           class="legend-section !mt-3 !pt-3 !border-t !border-opacity-20 md:!hidden"
           :class="clientSideTheme && isDark ? '!border-gray-600' : '!border-gray-300'"
@@ -1269,7 +1102,7 @@ onMounted(async (): Promise<void> => {
       </div>
     </div>
 
-    <!-- Legend Panel - Enhanced with mobile collapse -->
+    <!-- Legend Panel -->
     <div
       class="legend-panel !hidden md:!block"
       :class="[
@@ -1385,7 +1218,7 @@ onMounted(async (): Promise<void> => {
       </div>
     </div>
 
-    <!-- Fallback for SSR -->
+    <!-- SSR Fallback -->
     <div
       v-else
       class="flight-map-container !flex !items-center !justify-center !bg-gray-100 dark:!bg-gray-800"
@@ -1438,7 +1271,6 @@ onMounted(async (): Promise<void> => {
     0 10px 10px -5px rgb(0 0 0 / 0.04);
 }
 
-/* Mobile collapsed state */
 .stats-panel.collapsed {
   padding: 0.5rem;
   width: auto;
@@ -1476,7 +1308,6 @@ onMounted(async (): Promise<void> => {
     0 10px 10px -5px rgb(0 0 0 / 0.04);
 }
 
-/* Airport pin legend styles */
 .airport-pin-legend {
   background-image: url("data:image/svg+xml,%3Csvg width='12' height='18' viewBox='0 0 24 36' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12 0C5.373 0 0 5.373 0 12c0 9 12 24 12 24s12-15 12-24c0-6.627-5.373-12-12-12z' fill='%23d97706' stroke='%2378350f' stroke-width='1'/%3E%3Ccircle cx='12' cy='12' r='4' fill='white'/%3E%3C/svg%3E");
   background-size: contain;
@@ -1488,7 +1319,6 @@ onMounted(async (): Promise<void> => {
   background-image: url("data:image/svg+xml,%3Csvg width='12' height='18' viewBox='0 0 24 36' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M12 0C5.373 0 0 5.373 0 12c0 9 12 24 12 24s12-15 12-24c0-6.627-5.373-12-12-12z' fill='%23f59e0b' stroke='%2392400e' stroke-width='1'/%3E%3Ccircle cx='12' cy='12' r='4' fill='white'/%3E%3C/svg%3E");
 }
 
-/* Optimized Leaflet Styles for Performance */
 :deep(.custom-popup .leaflet-popup-content-wrapper) {
   background: var(--vp-c-bg) !important;
   border-color: var(--vp-c-border) !important;
@@ -1530,12 +1360,10 @@ onMounted(async (): Promise<void> => {
   color: var(--vp-c-text-1) !important;
 }
 
-/* Custom pin icon styles */
 :deep(.custom-pin-icon) {
   background: none !important;
   border: none !important;
   cursor: pointer;
-  /* GPU acceleration for smooth interaction */
   transform: translate3d(0, 0, 0);
   will-change: transform;
   transition: transform 0.1s ease-out;
@@ -1545,7 +1373,6 @@ onMounted(async (): Promise<void> => {
   transform: translate3d(0, -2px, 0) scale(1.05);
 }
 
-/* Smooth route interactions without performance overhead */
 :deep(.flight-route) {
   cursor: pointer;
   transition: opacity 0.15s ease-out;
@@ -1555,15 +1382,12 @@ onMounted(async (): Promise<void> => {
   opacity: 1 !important;
 }
 
-/* Stable airport pin markers for zoomed in view */
 :deep(.airport-pin) {
   cursor: pointer;
-  /* Use will-change for better GPU optimization */
   will-change: transform;
   transform: translate3d(0, 0, 0);
 }
 
-/* Stable airport dot markers for zoomed out view */
 :deep(.airport-dot) {
   cursor: pointer;
   transition: opacity 0.15s ease-out;
@@ -1573,7 +1397,6 @@ onMounted(async (): Promise<void> => {
   opacity: 1 !important;
 }
 
-/* Optimized Leaflet controls */
 :deep(.leaflet-control-zoom) {
   border: none !important;
   box-shadow:
@@ -1591,35 +1414,28 @@ onMounted(async (): Promise<void> => {
   background: var(--vp-c-bg-soft) !important;
 }
 
-/* High-performance Leaflet optimizations */
 :deep(.leaflet-zoom-animated) {
-  /* Use GPU acceleration with 3D transforms */
   transform: translate3d(0, 0, 0);
   backface-visibility: hidden;
   perspective: 1000px;
 }
 
-/* Optimized marker pane for smooth zooming */
 :deep(.leaflet-marker-pane) {
   transform: translate3d(0, 0, 0);
   will-change: transform;
   backface-visibility: hidden;
 }
 
-/* Smooth overlay pane */
 :deep(.leaflet-overlay-pane) {
   transform: translate3d(0, 0, 0);
   will-change: transform;
 }
 
-/* Optimize vector rendering */
 :deep(.leaflet-overlay-pane svg) {
-  /* Enable hardware acceleration for SVG */
   transform: translate3d(0, 0, 0);
   will-change: transform;
 }
 
-/* Prevent sub-pixel rendering issues */
 :deep(.leaflet-container) {
   transform: translate3d(0, 0, 0);
   image-rendering: optimizeSpeed;
@@ -1627,7 +1443,6 @@ onMounted(async (): Promise<void> => {
 }
 
 :deep(.leaflet-popup-pane) {
-  /* Stable popup positioning */
   pointer-events: none;
 }
 
@@ -1635,7 +1450,6 @@ onMounted(async (): Promise<void> => {
   pointer-events: auto;
 }
 
-/* Responsive adjustments */
 @media (max-width: 768px) {
   .flight-map-container {
     min-height: 350px;
@@ -1674,7 +1488,6 @@ onMounted(async (): Promise<void> => {
   }
 }
 
-/* Full viewport option */
 .flight-map-container.full-viewport {
   height: 100vh !important;
   min-height: 100vh;
