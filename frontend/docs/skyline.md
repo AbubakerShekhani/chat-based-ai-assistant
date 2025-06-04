@@ -1704,7 +1704,7 @@ const flightData = [
  {
    date: "2025-04-03",
    time: "11:55:00",
-   origin: "NRT",
+   origin: "TOY",
    destination: "NRT",
    flightNumber: "NH316",
    departureDateTime: "2025-04-03T11:55:00",

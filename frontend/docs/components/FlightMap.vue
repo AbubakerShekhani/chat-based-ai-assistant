@@ -294,6 +294,22 @@ const AIRPORT_COORDINATES: Record<string, Omit<Airport, "flightCount">> = {
     city: "Honolulu",
     country: "USA",
   },
+  NRT: {
+    code: "NRT",
+    lat: 35.7647,
+    lng: 140.3864,
+    name: "Narita International Airport",
+    city: "Tokyo",
+    country: "Japan",
+  },
+  TOY: {
+    code: "TOY",
+    lat: 36.6483,
+    lng: 137.1875,
+    name: "Toyama Airport",
+    city: "Toyama",
+    country: "Japan",
+  },
 };
 
 // --- Props ---
