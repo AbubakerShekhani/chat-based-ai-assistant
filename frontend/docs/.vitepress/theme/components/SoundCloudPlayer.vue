@@ -19,6 +19,8 @@ interface SoundCloudWidget {
   isPaused: (callback: (paused: boolean) => void) => void;
   getPosition: (callback: (position: number) => void) => void;
   getDuration: (callback: (duration: number) => void) => void;
+  getVolume: (callback: (volume: number) => void) => void;
+  setVolume: (volume: number) => void;
   seekTo: (position: number) => void;
   next: () => void;
   prev: () => void;
@@ -64,6 +66,8 @@ const currentTrack = ref(0);
 const currentPosition = ref(0);
 const currentDuration = ref(0);
 const isClient = ref(false);
+const clientSideTheme = ref(false);
+const isMuted = ref(false);
 
 // Track info
 const currentTrackTitle = ref("Loading...");
@@ -74,6 +78,8 @@ const totalTracks = ref(0);
 const playerRef = ref<HTMLDivElement | null>(null);
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const seekBarRef = ref<HTMLDivElement | null>(null);
+const titleRef = ref<HTMLDivElement | null>(null);
+const artistRef = ref<HTMLDivElement | null>(null);
 
 // Widget instance
 let widget: SoundCloudWidget | null = null;
@@ -97,6 +103,12 @@ const formatTime = (ms: number): string => {
 
 const loadSoundCloudAPI = (): Promise<void> => {
   return new Promise((resolve, reject) => {
+    // Check if we're on client-side
+    if (typeof window === "undefined") {
+      reject(new Error("Not in browser environment"));
+      return;
+    }
+
     if (window.SC) {
       resolve();
       return;
@@ -111,7 +123,8 @@ const loadSoundCloudAPI = (): Promise<void> => {
 };
 
 const initializeWidget = async (): Promise<void> => {
-  if (!iframeRef.value) return;
+  // Only initialize on client-side
+  if (!isClient.value || !iframeRef.value) return;
 
   try {
     await loadSoundCloudAPI();
@@ -121,6 +134,12 @@ const initializeWidget = async (): Promise<void> => {
       console.log("SoundCloud widget ready");
       loadTrackInfo();
       startPositionTracking();
+
+      // Get initial volume state
+      widget!.getVolume((volume: number) => {
+        isMuted.value = volume === 0;
+      });
+
       isLoading.value = false;
     });
 
@@ -140,10 +159,12 @@ const initializeWidget = async (): Promise<void> => {
       console.log("Track finished");
       isPlaying.value = false;
       stopPositionTracking();
-      // Auto-advance to next track
+
+      // Auto-advance to next track with a small delay
       setTimeout(() => {
+        console.log("Auto-advancing to next track");
         nextTrack();
-      }, 1000);
+      }, 500);
     });
 
     widget.bind(window.SC.Widget.Events.SEEK, () => {
@@ -170,6 +191,9 @@ const loadTrackInfo = (): void => {
       currentTrackTitle.value = sound.title;
       currentTrackArtist.value = sound.user.username;
       currentDuration.value = sound.duration;
+
+      // Check for text overflow after track info updates
+      setTimeout(checkTextOverflow, 100);
     }
   });
 
@@ -202,12 +226,15 @@ const updatePosition = (): void => {
 };
 
 const startPositionTracking = (): void => {
+  // Only start tracking on client-side
+  if (!isClient.value) return;
+
   stopPositionTracking();
   positionInterval = window.setInterval(updatePosition, 1000);
 };
 
 const stopPositionTracking = (): void => {
-  if (positionInterval) {
+  if (positionInterval && typeof window !== "undefined") {
     clearInterval(positionInterval);
     positionInterval = null;
   }
@@ -231,14 +258,42 @@ const togglePlay = (): void => {
 
 const nextTrack = (): void => {
   if (!widget) return;
+
+  console.log("Moving to next track");
   widget.next();
-  setTimeout(loadTrackInfo, 100);
+
+  // Update track info and start playing
+  setTimeout(() => {
+    loadTrackInfo();
+
+    // Ensure the new track starts playing
+    widget!.isPaused((paused: boolean) => {
+      if (paused) {
+        console.log("Starting playback of next track");
+        widget!.play();
+      }
+    });
+  }, 200);
 };
 
 const prevTrack = (): void => {
   if (!widget) return;
+
+  console.log("Moving to previous track");
   widget.prev();
-  setTimeout(loadTrackInfo, 100);
+
+  // Update track info and start playing
+  setTimeout(() => {
+    loadTrackInfo();
+
+    // Ensure the new track starts playing
+    widget!.isPaused((paused: boolean) => {
+      if (paused) {
+        console.log("Starting playback of previous track");
+        widget!.play();
+      }
+    });
+  }, 200);
 };
 
 const seek = (event: MouseEvent): void => {
@@ -252,13 +307,83 @@ const seek = (event: MouseEvent): void => {
   widget.seekTo(seekPosition);
 };
 
+const toggleMute = (): void => {
+  if (!widget) return;
+
+  widget.getVolume((volume: number) => {
+    console.log("Current volume:", volume);
+    const newVolume = volume > 0 ? 0 : 100;
+    isMuted.value = newVolume === 0;
+
+    widget!.setVolume(newVolume);
+    console.log("Set volume to:", newVolume);
+  });
+};
+
 const toggleExpanded = (): void => {
   isExpanded.value = !isExpanded.value;
+  if (isExpanded.value) {
+    // Check for text overflow after expansion
+    setTimeout(checkTextOverflow, 100);
+  }
+};
+
+const checkTextOverflow = (): void => {
+  // Only run on client-side to avoid SSR issues
+  if (!isClient.value) return;
+
+  nextTick(() => {
+    // Check title overflow
+    if (titleRef.value) {
+      const isOverflowing = titleRef.value.scrollWidth > titleRef.value.clientWidth;
+      const element = titleRef.value;
+
+      if (isOverflowing) {
+        element.classList.add("sc-scrolling-text");
+        // Set CSS custom properties for dynamic animation
+        const containerWidth = element.clientWidth;
+        const textWidth = element.scrollWidth;
+        const translateDistance = textWidth - containerWidth + 20; // Add some padding
+
+        element.style.setProperty("--translate-distance", `-${translateDistance}px`);
+        element.style.setProperty("--container-width", `${containerWidth}px`);
+      } else {
+        element.classList.remove("sc-scrolling-text");
+        element.style.removeProperty("--translate-distance");
+        element.style.removeProperty("--container-width");
+      }
+    }
+
+    // Check artist overflow
+    if (artistRef.value) {
+      const isOverflowing = artistRef.value.scrollWidth > artistRef.value.clientWidth;
+      const element = artistRef.value;
+
+      if (isOverflowing) {
+        element.classList.add("sc-scrolling-text");
+        // Set CSS custom properties for dynamic animation
+        const containerWidth = element.clientWidth;
+        const textWidth = element.scrollWidth;
+        const translateDistance = textWidth - containerWidth + 20; // Add some padding
+
+        element.style.setProperty("--translate-distance", `-${translateDistance}px`);
+        element.style.setProperty("--container-width", `${containerWidth}px`);
+      } else {
+        element.classList.remove("sc-scrolling-text");
+        element.style.removeProperty("--translate-distance");
+        element.style.removeProperty("--container-width");
+      }
+    }
+  });
 };
 
 // Lifecycle
 onMounted(() => {
+  // Set client flags first to prevent hydration mismatches
   isClient.value = true;
+  clientSideTheme.value = true;
+
+  // Wait for next tick to ensure DOM is ready, then initialize
   nextTick(() => {
     initializeWidget();
   });
@@ -266,6 +391,16 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopPositionTracking();
+
+  // Clean up widget if it exists
+  if (widget && typeof window !== "undefined") {
+    try {
+      // Unbind events to prevent memory leaks
+      widget = null;
+    } catch (error) {
+      console.error("Error cleaning up widget:", error);
+    }
+  }
 });
 </script>
 
@@ -303,14 +438,38 @@ onUnmounted(() => {
       <div v-else class="sc-expanded">
         <div class="sc-header">
           <div class="sc-header-info">
-            <div class="sc-title">{{ currentTrackTitle }}</div>
-            <div class="sc-artist">{{ currentTrackArtist }}</div>
+            <div ref="titleRef" class="sc-title">{{ currentTrackTitle }}</div>
+            <div ref="artistRef" class="sc-artist">{{ currentTrackArtist }}</div>
           </div>
-          <button @click="toggleExpanded" class="sc-minimize-btn">
-            <svg class="sc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
-            </svg>
-          </button>
+          <div class="sc-header-controls">
+            <button
+              @click="toggleMute"
+              class="sc-header-btn"
+              :disabled="isLoading"
+              :title="isMuted ? 'Unmute' : 'Mute'"
+            >
+              <svg v-if="!isMuted" class="sc-icon-small" viewBox="0 0 24 24" fill="currentColor">
+                <path
+                  d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"
+                />
+              </svg>
+              <svg v-else class="sc-icon-small" viewBox="0 0 24 24" fill="currentColor">
+                <path
+                  d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"
+                />
+              </svg>
+            </button>
+            <button @click="toggleExpanded" class="sc-header-btn">
+              <svg class="sc-icon-small" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M20 12H4"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div class="sc-controls">
@@ -513,6 +672,9 @@ onUnmounted(() => {
 .sc-header-info {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  /* Container should have overflow hidden */
+  position: relative;
 }
 
 .sc-title {
@@ -521,17 +683,46 @@ onUnmounted(() => {
   color: #111827;
   margin-bottom: 4px;
   line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  position: relative;
+  /* Remove text-overflow and overflow to allow scrolling */
 }
 
 .sc-artist {
   font-size: 14px;
   color: #6b7280;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  position: relative;
+  /* Remove text-overflow and overflow to allow scrolling */
+}
+
+/* Scrolling text animation - Spotify-like behavior */
+.sc-scrolling-text {
+  animation: scroll-text 8s linear infinite;
+  animation-delay: 1s;
+  /* Delay before starting scroll */
+}
+
+.sc-scrolling-text:hover {
+  animation-play-state: paused;
+}
+
+@keyframes scroll-text {
+  0% {
+    transform: translateX(0);
+  }
+
+  15% {
+    transform: translateX(0);
+  }
+
+  85% {
+    transform: translateX(var(--translate-distance, -100px));
+  }
+
+  100% {
+    transform: translateX(var(--translate-distance, -100px));
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -544,7 +735,14 @@ onUnmounted(() => {
   }
 }
 
-.sc-minimize-btn {
+.sc-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+}
+
+.sc-header-btn {
   width: 32px;
   height: 32px;
   border-radius: 6px;
@@ -557,20 +755,43 @@ onUnmounted(() => {
   cursor: pointer;
   transition: all 0.2s;
   flex-shrink: 0;
-  margin-left: 12px;
 }
 
-.sc-minimize-btn:hover {
+.sc-header-btn:hover:not(:disabled) {
   background: rgba(107, 114, 128, 0.1);
 }
 
-@media (prefers-color-scheme: dark) {
-  .sc-minimize-btn {
-    color: #9ca3af;
+.sc-header-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Scrolling text animation - Spotify-like behavior */
+.sc-scrolling-text {
+  animation: scroll-text 8s linear infinite;
+  animation-delay: 1s;
+  /* Delay before starting scroll */
+}
+
+.sc-scrolling-text:hover {
+  animation-play-state: paused;
+}
+
+@keyframes scroll-text {
+  0% {
+    transform: translateX(0);
   }
 
-  .sc-minimize-btn:hover {
-    background: rgba(156, 163, 175, 0.1);
+  15% {
+    transform: translateX(0);
+  }
+
+  85% {
+    transform: translateX(var(--translate-distance, -100px));
+  }
+
+  100% {
+    transform: translateX(var(--translate-distance, -100px));
   }
 }
 
