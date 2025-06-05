@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from "vue";
+import { useData } from "vitepress";
 
 // Types
 interface SoundCloudSound {
@@ -81,6 +82,9 @@ const seekBarRef = ref<HTMLDivElement | null>(null);
 const titleRef = ref<HTMLDivElement | null>(null);
 const artistRef = ref<HTMLDivElement | null>(null);
 
+// Theme integration - like Mini Chat
+const { isDark } = useData();
+
 // Widget instance
 let widget: SoundCloudWidget | null = null;
 let positionInterval: number | null = null;
@@ -92,6 +96,18 @@ const progressPercentage = computed(() => {
   if (currentDuration.value === 0) return 0;
   return (currentPosition.value / currentDuration.value) * 100;
 });
+
+// CSS variables for theme - like Mini Chat
+const cssVars = computed(() => ({
+  "--player-bg": clientSideTheme.value && isDark.value ? "rgba(17, 24, 39, 0.95)" : "white",
+  "--player-border":
+    clientSideTheme.value && isDark.value ? "rgba(75, 85, 99, 0.3)" : "rgba(0, 0, 0, 0.08)",
+  "--player-text": clientSideTheme.value && isDark.value ? "#f9fafb" : "#111827",
+  "--player-text-secondary": clientSideTheme.value && isDark.value ? "#9ca3af" : "#6b7280",
+  "--button-hover-bg":
+    clientSideTheme.value && isDark.value ? "rgba(156, 163, 175, 0.1)" : "rgba(107, 114, 128, 0.1)",
+  "--seek-bg": clientSideTheme.value && isDark.value ? "#374151" : "#e5e7eb",
+}));
 
 // Helper functions
 const formatTime = (ms: number): string => {
@@ -402,7 +418,11 @@ onUnmounted(() => {
     />
 
     <!-- Player UI -->
-    <div ref="playerRef" :class="['sc-player-container', { expanded: isExpanded }]">
+    <div
+      ref="playerRef"
+      :class="['sc-player-container', { expanded: isExpanded }]"
+      :style="cssVars"
+    >
       <!-- Collapsed View (just musical note icon) -->
       <div v-if="!isExpanded" class="sc-collapsed" @click="toggleExpanded">
         <div class="sc-music-note">
@@ -539,27 +559,19 @@ onUnmounted(() => {
 }
 
 .sc-player-container {
-  background: white;
+  background: var(--player-bg);
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--player-border);
   backdrop-filter: blur(10px);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
+  color: var(--player-text);
 }
 
 .sc-player-container.expanded {
   width: 320px;
   height: 200px;
-}
-
-/* Dark mode */
-@media (prefers-color-scheme: dark) {
-  .sc-player-container {
-    background: rgba(17, 24, 39, 0.95);
-    border-color: rgba(75, 85, 99, 0.3);
-    color: white;
-  }
 }
 
 /* Collapsed View */
@@ -658,34 +670,30 @@ onUnmounted(() => {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  /* Container should have overflow hidden */
   position: relative;
 }
 
 .sc-title {
   font-size: 16px;
   font-weight: 600;
-  color: #111827;
+  color: var(--player-text);
   margin-bottom: 4px;
   line-height: 1.3;
   white-space: nowrap;
   position: relative;
-  /* Remove text-overflow and overflow to allow scrolling */
 }
 
 .sc-artist {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--player-text-secondary);
   white-space: nowrap;
   position: relative;
-  /* Remove text-overflow and overflow to allow scrolling */
 }
 
 /* Scrolling text animation - Spotify-like behavior */
 .sc-scrolling-text {
   animation: scroll-text 8s linear infinite;
   animation-delay: 1s;
-  /* Delay before starting scroll */
 }
 
 .sc-scrolling-text:hover {
@@ -707,16 +715,6 @@ onUnmounted(() => {
 
   100% {
     transform: translateX(var(--translate-distance, -100px));
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  .sc-title {
-    color: #f9fafb;
-  }
-
-  .sc-artist {
-    color: #9ca3af;
   }
 }
 
@@ -733,7 +731,7 @@ onUnmounted(() => {
   border-radius: 6px;
   background: transparent;
   border: none;
-  color: #6b7280;
+  color: var(--player-text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -743,41 +741,12 @@ onUnmounted(() => {
 }
 
 .sc-header-btn:hover:not(:disabled) {
-  background: rgba(107, 114, 128, 0.1);
+  background: var(--button-hover-bg);
 }
 
 .sc-header-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-/* Scrolling text animation - Spotify-like behavior */
-.sc-scrolling-text {
-  animation: scroll-text 8s linear infinite;
-  animation-delay: 1s;
-  /* Delay before starting scroll */
-}
-
-.sc-scrolling-text:hover {
-  animation-play-state: paused;
-}
-
-@keyframes scroll-text {
-  0% {
-    transform: translateX(0);
-  }
-
-  15% {
-    transform: translateX(0);
-  }
-
-  85% {
-    transform: translateX(var(--translate-distance, -100px));
-  }
-
-  100% {
-    transform: translateX(var(--translate-distance, -100px));
-  }
 }
 
 .sc-controls {
@@ -793,7 +762,7 @@ onUnmounted(() => {
   border-radius: 50%;
   background: transparent;
   border: none;
-  color: #6b7280;
+  color: var(--player-text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -802,24 +771,13 @@ onUnmounted(() => {
 }
 
 .sc-nav-btn:hover:not(:disabled) {
-  background: rgba(107, 114, 128, 0.1);
-  color: #374151;
+  background: var(--button-hover-bg);
+  color: var(--player-text);
 }
 
 .sc-nav-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-@media (prefers-color-scheme: dark) {
-  .sc-nav-btn {
-    color: #9ca3af;
-  }
-
-  .sc-nav-btn:hover:not(:disabled) {
-    background: rgba(156, 163, 175, 0.1);
-    color: #d1d5db;
-  }
 }
 
 .sc-play-btn {
@@ -855,15 +813,9 @@ onUnmounted(() => {
 
 .sc-time {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--player-text-secondary);
   font-variant-numeric: tabular-nums;
   min-width: 40px;
-}
-
-@media (prefers-color-scheme: dark) {
-  .sc-time {
-    color: #9ca3af;
-  }
 }
 
 .sc-seek-bar {
@@ -877,15 +829,9 @@ onUnmounted(() => {
 .sc-seek-bg {
   width: 100%;
   height: 4px;
-  background: #e5e7eb;
+  background: var(--seek-bg);
   border-radius: 2px;
   overflow: hidden;
-}
-
-@media (prefers-color-scheme: dark) {
-  .sc-seek-bg {
-    background: #374151;
-  }
 }
 
 .sc-seek-fill {
@@ -898,13 +844,7 @@ onUnmounted(() => {
 .sc-track-counter {
   text-align: center;
   font-size: 12px;
-  color: #6b7280;
-}
-
-@media (prefers-color-scheme: dark) {
-  .sc-track-counter {
-    color: #9ca3af;
-  }
+  color: var(--player-text-secondary);
 }
 
 .sc-icon {
