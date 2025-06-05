@@ -131,7 +131,6 @@ const initializeWidget = async (): Promise<void> => {
     widget = window.SC.Widget(iframeRef.value);
 
     widget.bind(window.SC.Widget.Events.READY, () => {
-      console.log("SoundCloud widget ready");
       loadTrackInfo();
       startPositionTracking();
 
@@ -144,25 +143,21 @@ const initializeWidget = async (): Promise<void> => {
     });
 
     widget.bind(window.SC.Widget.Events.PLAY, () => {
-      console.log("Track started playing");
       isPlaying.value = true;
       startPositionTracking();
     });
 
     widget.bind(window.SC.Widget.Events.PAUSE, () => {
-      console.log("Track paused");
       isPlaying.value = false;
       stopPositionTracking();
     });
 
     widget.bind(window.SC.Widget.Events.FINISH, () => {
-      console.log("Track finished");
       isPlaying.value = false;
       stopPositionTracking();
 
       // Auto-advance to next track with a small delay
       setTimeout(() => {
-        console.log("Auto-advancing to next track");
         nextTrack();
       }, 500);
     });
@@ -216,7 +211,6 @@ const updatePosition = (): void => {
     if (isPlaying.value && position > 0) {
       widget!.isPaused((paused: boolean) => {
         if (paused && isPlaying.value) {
-          console.log("Track stopped unexpectedly at:", formatTime(position));
           isPlaying.value = false;
           stopPositionTracking();
         }
@@ -245,12 +239,9 @@ const togglePlay = (): void => {
   if (!widget) return;
 
   widget.isPaused((paused: boolean) => {
-    console.log("Current state - paused:", paused);
     if (paused) {
-      console.log("Attempting to play");
       widget!.play();
     } else {
-      console.log("Attempting to pause");
       widget!.pause();
     }
   });
@@ -259,7 +250,6 @@ const togglePlay = (): void => {
 const nextTrack = (): void => {
   if (!widget) return;
 
-  console.log("Moving to next track");
   widget.next();
 
   // Update track info and start playing
@@ -269,7 +259,6 @@ const nextTrack = (): void => {
     // Ensure the new track starts playing
     widget!.isPaused((paused: boolean) => {
       if (paused) {
-        console.log("Starting playback of next track");
         widget!.play();
       }
     });
@@ -279,7 +268,6 @@ const nextTrack = (): void => {
 const prevTrack = (): void => {
   if (!widget) return;
 
-  console.log("Moving to previous track");
   widget.prev();
 
   // Update track info and start playing
@@ -289,7 +277,6 @@ const prevTrack = (): void => {
     // Ensure the new track starts playing
     widget!.isPaused((paused: boolean) => {
       if (paused) {
-        console.log("Starting playback of previous track");
         widget!.play();
       }
     });
@@ -311,12 +298,10 @@ const toggleMute = (): void => {
   if (!widget) return;
 
   widget.getVolume((volume: number) => {
-    console.log("Current volume:", volume);
     const newVolume = volume > 0 ? 0 : 100;
     isMuted.value = newVolume === 0;
 
     widget!.setVolume(newVolume);
-    console.log("Set volume to:", newVolume);
   });
 };
 
