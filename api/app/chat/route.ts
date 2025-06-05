@@ -200,6 +200,7 @@ const sendEmail = async ({
     const { data, error } = await resend.emails.send({
       from: "Advocado <advocado@stevanussatria.com>",
       to: ["me@stevanussatria.com"], // Hardcoded recipient
+      cc: [senderEmail], // CC sender
       subject: subject,
       html: htmlContent,
     });
@@ -215,7 +216,7 @@ const sendEmail = async ({
       success: true,
       data: {
         id: data?.id,
-        message: "Email sent successfully to Stevanus",
+        message: "Email sent successfully to Stevanus, with sender CC'ed.",
       },
     });
   } catch (error) {
