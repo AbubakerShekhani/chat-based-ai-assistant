@@ -45,12 +45,6 @@ const PROMPT_SUGGESTIONS = [
   "How can I contact Steve?",
 ] as const;
 
-const WELCOME_MESSAGE: ChatMessage = {
-  role: "assistant",
-  content: "Hi! What would you like to learn about Steve today?",
-  timestamp: Date.now(),
-};
-
 const API_BASE = "https://advocado-agent.vercel.app";
 
 // --- State ---
@@ -68,8 +62,11 @@ const feedback = ref<"good" | "bad" | null>(null);
 const threadId = ref<string | null>(null);
 const showLeftScroll = ref(false);
 const showRightScroll = ref(false);
-const isFirstMessageSent = ref(false);
 const isMobile = ref(false);
+
+// --- New state for compact mode ---
+const isCompactMode = ref(true); // Start in compact mode
+const hasStartedChat = ref(false); // Track if user has started chatting
 
 // --- DOM Refs ---
 const inputRef = ref<HTMLTextAreaElement | null>(null);
@@ -142,6 +139,32 @@ const updatePromptScrollButtons = (): void => {
   showRightScroll.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
 };
 
+// --- Expand chat window ---
+const expandChatWindow = async (): Promise<void> => {
+  isCompactMode.value = false;
+  hasStartedChat.value = true;
+
+  await nextTick();
+
+  const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  chatHeight.value = isMobile.value ? viewportHeight - 20 : viewportHeight;
+  localStorage.setItem("chatHeight", chatHeight.value.toString());
+
+  const scrollAction = () => {
+    if (!chatWindowRef.value) return;
+    const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
+    window.scrollTo({ top: offsetTop, behavior: "smooth" });
+    if (isMobile.value) setTimeout(scrollToBottom, 150);
+  };
+
+  if (isMobile.value) {
+    requestAnimationFrame(scrollAction);
+  } else {
+    await nextTick();
+    scrollAction();
+  }
+};
+
 // --- Storage Functions ---
 const isWittyMessage = (msg: ChatMessage, index: number): boolean => {
   // Check if this is a witty error message
@@ -194,6 +217,8 @@ const setFullHeightAndScroll = async (): Promise<void> => {
 };
 
 const startResize = (e: MouseEvent | TouchEvent): void => {
+  if (isCompactMode.value) return; // Don't allow resize in compact mode
+
   e.preventDefault();
   isDragging.value = true;
   const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
@@ -237,7 +262,7 @@ const handleKeyDown = (e: KeyboardEvent): void => {
 
 const handleWindowResize = (): void => {
   isMobile.value = checkIfMobile();
-  if (isFirstMessageSent.value) {
+  if (hasStartedChat.value && !isCompactMode.value) {
     chatHeight.value = window.innerHeight;
     localStorage.setItem("chatHeight", chatHeight.value.toString());
 
@@ -255,7 +280,7 @@ const handleWindowResize = (): void => {
 };
 
 const handleVisibilityChange = (): void => {
-  if (document.hidden || !isFirstMessageSent.value || !isMobile.value) return;
+  if (document.hidden || !hasStartedChat.value || !isMobile.value || isCompactMode.value) return;
 
   requestAnimationFrame(() => {
     if (!chatWindowRef.value) return;
@@ -286,7 +311,9 @@ const handleStorageChange = (event: StorageEvent): void => {
     case "threadId":
       threadId.value = event.newValue;
       if (!event.newValue) {
-        messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
+        messages.value = [];
+        isCompactMode.value = true;
+        hasStartedChat.value = false;
         localStorage.removeItem("chatEnding");
       }
       break;
@@ -307,10 +334,7 @@ const handleStorageChange = (event: StorageEvent): void => {
 const sendMessage = async (): Promise<void> => {
   if (!userInput.value.trim()) return;
 
-  const isFirstMessage =
-    messages.value.length <= 1 &&
-    messages.value[0]?.role === "assistant" &&
-    messages.value[0]?.content.includes("Hi! What would you like to learn about Steve today?");
+  const isFirstMessage = messages.value.length === 0;
 
   const userMessage: ChatMessage = {
     role: "user",
@@ -320,21 +344,18 @@ const sendMessage = async (): Promise<void> => {
 
   messages.value.push(userMessage);
 
-  if (isFirstMessage && !isFirstMessageSent.value) {
-    isFirstMessageSent.value = true;
-    setTimeout(async () => {
-      await setFullHeightAndScroll();
-      if (isMobile.value) {
-        window.addEventListener(
-          "resize",
-          function onResize() {
-            scrollToBottom();
-            window.removeEventListener("resize", onResize);
-          },
-          { once: true },
-        );
-      }
-    }, 50);
+  if (isFirstMessage) {
+    await expandChatWindow();
+    if (isMobile.value) {
+      window.addEventListener(
+        "resize",
+        function onResize() {
+          scrollToBottom();
+          window.removeEventListener("resize", onResize);
+        },
+        { once: true },
+      );
+    }
   }
 
   if (isClient.value) localStorage.setItem("hadChatInteraction", "true");
@@ -447,7 +468,9 @@ const submitFeedback = async (): Promise<void> => {
     localStorage.removeItem("threadId");
     localStorage.removeItem("chatMessages");
     threadId.value = null;
-    messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
+    messages.value = [];
+    isCompactMode.value = true;
+    hasStartedChat.value = false;
   } catch (error) {
     console.error("Error ending chat:", error);
     messages.value.push({
@@ -484,7 +507,13 @@ const cleanupEventListeners = (): void => {
 // --- Watchers ---
 watch(userInput, () => nextTick(resizeTextarea));
 watch(messages, saveMessagesToStorage, { deep: true });
-watch(messages, scrollToBottom, { deep: true });
+watch(
+  messages,
+  () => {
+    if (!isCompactMode.value) scrollToBottom();
+  },
+  { deep: true },
+);
 
 // --- Mount ---
 onMounted(async () => {
@@ -497,13 +526,20 @@ onMounted(async () => {
 
   if (storedMessages) {
     try {
-      messages.value = JSON.parse(storedMessages);
+      const parsedMessages = JSON.parse(storedMessages);
+      messages.value = parsedMessages;
+
+      // If we have stored messages, we're not in compact mode
+      if (parsedMessages.length > 0) {
+        isCompactMode.value = false;
+        hasStartedChat.value = true;
+      }
     } catch (error) {
       console.error("Error parsing stored messages:", error);
-      messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
+      messages.value = [];
     }
   } else {
-    messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
+    messages.value = [];
   }
 
   // Only load from backend if we have threadId but no stored messages
@@ -524,7 +560,8 @@ onMounted(async () => {
 
           const hasUserMessages = messagesData.some((msg: Message) => msg.role === "user");
           if (hasUserMessages) {
-            isFirstMessageSent.value = true;
+            isCompactMode.value = false;
+            hasStartedChat.value = true;
             setTimeout(() => setFullHeightAndScroll(), 100);
           }
         }
@@ -552,18 +589,18 @@ onMounted(async () => {
   // iOS Safari specific
   if (isMobile.value && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
     window.addEventListener("scroll", () => {
-      if (isFirstMessageSent.value) {
+      if (hasStartedChat.value) {
         sessionStorage.setItem("chatScrollY", window.scrollY.toString());
       }
     });
 
     const storedScrollY = sessionStorage.getItem("chatScrollY");
-    if (storedScrollY && isFirstMessageSent.value) {
+    if (storedScrollY && hasStartedChat.value) {
       setTimeout(() => window.scrollTo(0, parseInt(storedScrollY)), 100);
     }
   }
 
-  scrollToBottom();
+  if (!isCompactMode.value) scrollToBottom();
   inputRef.value?.focus();
 
   await nextTick();
@@ -579,337 +616,462 @@ onBeforeUnmount(cleanupEventListeners);
 </script>
 
 <template>
-  <div
-    v-if="isClient"
-    ref="chatWindowRef"
-    :style="{ height: `${chatHeight}px`, ...cssVars }"
-    :class="[
-      '!relative !flex !w-full !flex-col !rounded-lg !p-4 !shadow-lg',
-      clientSideTheme && isDark
-        ? '!border !border-gray-700 !bg-gray-900'
-        : '!border !border-gray-200 !bg-gray-50',
-    ]"
-  >
-    <!-- Loading Overlay -->
-    <div v-if="isInitialLoading" class="chat-loading-overlay">
-      <div class="chat-loading-content">
-        <div
-          class="!h-8 !w-8 !border-4 !border-indigo-600 !border-t-transparent !rounded-full !animate-spin"
-        ></div>
-        <p :class="clientSideTheme && isDark ? '!text-gray-200' : '!text-gray-700'">
-          Loading past conversations...
+  <div v-if="isClient">
+    <!-- Compact Mode - Initial State -->
+    <div
+      v-if="isCompactMode"
+      :class="[
+        '!w-full !max-w-2xl !mx-auto !p-6 !rounded-lg !shadow-lg',
+        clientSideTheme && isDark
+          ? '!border !border-gray-700 !bg-gray-900'
+          : '!border !border-gray-200 !bg-gray-50',
+      ]"
+    >
+      <!-- Welcome Header -->
+      <div class="!text-center !mb-8">
+        <div class="!flex !items-center !justify-center !mb-4">
+          <div class="!h-4 !w-4 !rounded-full !bg-green-500 !mr-3"></div>
+          <h1
+            :class="[
+              '!text-2xl !font-bold',
+              clientSideTheme && isDark ? '!text-gray-100' : '!text-gray-800',
+            ]"
+          >
+            Chat with Advocado 🥑
+          </h1>
+        </div>
+        <p :class="['!text-lg', clientSideTheme && isDark ? '!text-gray-300' : '!text-gray-600']">
+          Hi! What would you like to learn about Steve today?
         </p>
       </div>
+
+      <!-- Prompt Suggestions -->
+      <div class="!mb-6 !relative">
+        <div
+          ref="promptBarRef"
+          class="prompt-bar !flex !overflow-x-auto !space-x-3 !pb-2 !scroll-smooth !px-1"
+          @scroll="updatePromptScrollButtons"
+        >
+          <button
+            v-for="suggestion in PROMPT_SUGGESTIONS"
+            :key="suggestion"
+            type="button"
+            :disabled="isInitialLoading"
+            :class="[
+              '!px-4 !py-3 !rounded-lg !text-sm !font-medium !transition-colors !duration-200 !shadow-sm',
+              '!border !whitespace-nowrap !min-w-max',
+              clientSideTheme && isDark
+                ? '!bg-gray-800 !text-gray-100 !border-gray-600 hover:!bg-gray-700'
+                : '!bg-white !text-gray-800 !border-gray-300 hover:!bg-gray-50',
+              isInitialLoading && '!opacity-50 !cursor-not-allowed',
+            ]"
+            @click="setSuggestion(suggestion)"
+          >
+            {{ suggestion }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Input Form -->
+      <form
+        :class="[
+          '!flex !rounded-lg !overflow-hidden !shadow-md !border',
+          clientSideTheme && isDark
+            ? '!bg-gray-800 !border-gray-600'
+            : '!bg-white !border-gray-300',
+        ]"
+        @submit.prevent="sendMessage"
+      >
+        <textarea
+          ref="inputRef"
+          v-model="userInput"
+          placeholder="Ask something about Steve..."
+          :class="[
+            '!flex-1 !border-0 !p-4 !outline-none !focus:ring-0 !focus:ring-offset-0 !resize-none',
+            '!min-h-[56px] !max-h-[200px] !overflow-y-auto !text-base',
+            clientSideTheme && isDark
+              ? '!bg-gray-800 !text-gray-100 !placeholder-gray-400'
+              : '!bg-white !text-gray-800 !placeholder-gray-500',
+          ]"
+          :disabled="loading || isInitialLoading"
+          rows="1"
+          @keydown="handleKeyDown"
+        ></textarea>
+        <button
+          type="submit"
+          :class="[
+            '!transition-all !duration-200 !ease-in-out !flex !items-center !justify-center !min-w-[80px] !px-6 !shadow-sm',
+            userInput.trim() && !loading && !isInitialLoading
+              ? '!bg-indigo-600 !hover:bg-indigo-700 !text-white'
+              : clientSideTheme && isDark
+                ? '!bg-gray-700 !text-gray-400 !cursor-not-allowed'
+                : '!bg-gray-200 !text-gray-400 !cursor-not-allowed',
+          ]"
+          :disabled="loading || isInitialLoading || !userInput.trim()"
+        >
+          <svg
+            v-if="!loading"
+            xmlns="http://www.w3.org/2000/svg"
+            class="!h-5 !w-5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+            />
+          </svg>
+          <div
+            v-else
+            class="!h-5 !w-5 !border-2 !border-t-transparent !border-current !rounded-full !animate-spin"
+          ></div>
+        </button>
+      </form>
     </div>
 
-    <!-- Header -->
+    <!-- Full Chat Mode - After First Message -->
     <div
+      v-else
+      ref="chatWindowRef"
+      :style="{ height: `${chatHeight}px`, ...cssVars }"
       :class="[
-        '!mb-4 !pb-3 !flex !items-center !justify-between',
-        clientSideTheme && isDark ? '!border-b !border-gray-700' : '!border-b !border-gray-200',
+        '!relative !flex !w-full !flex-col !rounded-lg !p-4 !shadow-lg',
+        clientSideTheme && isDark
+          ? '!border !border-gray-700 !bg-gray-900'
+          : '!border !border-gray-200 !bg-gray-50',
       ]"
     >
-      <div class="!flex !items-center">
-        <div class="!h-3 !w-3 !rounded-full !bg-green-500 !mr-2"></div>
-        <h3
-          :class="
-            clientSideTheme && isDark
-              ? '!text-gray-100 !font-medium'
-              : '!text-gray-800 !font-medium'
-          "
-        >
-          Chat with Advocado 🥑
-        </h3>
-      </div>
-      <button
-        v-if="hasOngoingThread"
-        :disabled="isEndingChat || isInitialLoading"
-        :class="[
-          '!px-3 !py-1 !rounded-lg !text-sm !transition-colors !duration-200 !ease-in-out',
-          '!bg-indigo-600 !hover:bg-indigo-700 !text-white',
-          (isEndingChat || isInitialLoading) && '!opacity-50 !cursor-not-allowed',
-        ]"
-        @click="endChat"
-      >
-        {{ isEndingChat ? "Ending..." : "End Chat" }}
-      </button>
-    </div>
-
-    <!-- Messages Area -->
-    <div ref="chatContainerRef" class="!flex-1 !overflow-auto !space-y-4 !flex !flex-col !px-1">
-      <div
-        v-for="(msg, index) in messages"
-        :key="index"
-        class="!flex !w-full !mb-3"
-        :class="[msg.role === 'user' ? '!justify-end' : '!justify-start']"
-      >
-        <div
-          v-if="msg.content.trim()"
-          :class="[
-            '!rounded-lg !px-4 !py-3 !max-w-[85%] !shadow-md',
-            msg.role === 'user'
-              ? '!bg-indigo-600 !text-white'
-              : clientSideTheme && isDark
-                ? '!bg-gray-800 !text-gray-100 !border !border-gray-700'
-                : '!bg-white !text-gray-800 !border !border-gray-200',
-          ]"
-        >
-          <div class="!flex !justify-between !items-center !mb-1">
-            <span
-              :class="[
-                '!text-xs',
-                msg.role === 'user'
-                  ? '!text-gray-200'
-                  : clientSideTheme && isDark
-                    ? '!text-gray-400'
-                    : '!text-gray-500',
-              ]"
-            >
-              {{ msg.role === "user" ? "You" : "Advocado" }}
-            </span>
-            <span
-              v-if="msg.timestamp"
-              :class="[
-                '!text-xs !ml-4',
-                msg.role === 'user'
-                  ? '!text-gray-200'
-                  : clientSideTheme && isDark
-                    ? '!text-gray-400'
-                    : '!text-gray-500',
-              ]"
-            >
-              {{ formatTime(msg.timestamp) }}
-            </span>
-          </div>
-          <!-- eslint-disable vue/no-v-html -->
+      <!-- Loading Overlay -->
+      <div v-if="isInitialLoading" class="chat-loading-overlay">
+        <div class="chat-loading-content">
           <div
-            class="!whitespace-pre-wrap markdown-content"
-            v-html="parseMarkdown(msg.content)"
+            class="!h-8 !w-8 !border-4 !border-indigo-600 !border-t-transparent !rounded-full !animate-spin"
           ></div>
-          <!-- eslint-enable -->
+          <p :class="clientSideTheme && isDark ? '!text-gray-200' : '!text-gray-700'">
+            Loading past conversations...
+          </p>
         </div>
       </div>
 
-      <!-- Loading Indicator -->
-      <div v-if="loading" class="!flex !justify-start !w-full">
-        <div
-          :class="[
-            '!rounded-lg !px-4 !py-3 !max-w-[85%] !shadow-md',
-            clientSideTheme && isDark
-              ? '!bg-gray-800 !text-gray-300 !border !border-gray-700'
-              : '!bg-white !text-gray-600 !border !border-gray-200',
-          ]"
-        >
-          <div class="!flex !justify-between !items-center !mb-1">
-            <span
-              :class="
-                clientSideTheme && isDark ? '!text-xs !text-gray-400' : '!text-xs !text-gray-500'
-              "
-            >
-              Advocado
-            </span>
-            <span
-              :class="
-                clientSideTheme && isDark
-                  ? '!text-xs !text-gray-400 !ml-4'
-                  : '!text-xs !text-gray-500 !ml-4'
-              "
-            >
-              {{ formatTime(Date.now()) }}
-            </span>
-          </div>
-          <div class="!flex !items-center">
-            <span
-              v-for="(_, i) in 3"
-              :key="i"
-              :class="[
-                '!inline-block !h-2 !w-2 !rounded-full !animate-pulse',
-                clientSideTheme && isDark ? '!bg-gray-400' : '!bg-gray-300',
-              ]"
-              :style="{
-                marginLeft: i > 0 ? '0.25rem' : 0,
-                marginRight: i < 2 ? '0.25rem' : 0,
-                animationDelay: `${i * 0.2}s`,
-              }"
-            ></span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Resize Handle -->
-    <div
-      class="!mb-6 !h-2 !w-full !cursor-ns-resize !flex !justify-center !items-center hover:!bg-gray-300 dark:hover:!bg-gray-700 !transition-colors !rounded-b-lg"
-      @mousedown="startResize"
-      @touchstart="startResize"
-    >
+      <!-- Header -->
       <div
         :class="[
-          '!w-12 !h-1 !rounded-full',
-          clientSideTheme && isDark ? '!bg-gray-600' : '!bg-gray-300',
+          '!mb-4 !pb-3 !flex !items-center !justify-between',
+          clientSideTheme && isDark ? '!border-b !border-gray-700' : '!border-b !border-gray-200',
         ]"
-      ></div>
-    </div>
-
-    <!-- Prompt Suggestions -->
-    <div class="!mb-0.5 !relative">
-      <div
-        ref="promptBarRef"
-        class="prompt-bar !flex !overflow-x-auto !space-x-2 !pb-1 !scroll-smooth !px-2"
-        @scroll="updatePromptScrollButtons"
       >
+        <div class="!flex !items-center">
+          <div class="!h-3 !w-3 !rounded-full !bg-green-500 !mr-2"></div>
+          <h3
+            :class="
+              clientSideTheme && isDark
+                ? '!text-gray-100 !font-medium'
+                : '!text-gray-800 !font-medium'
+            "
+          >
+            Chat with Advocado 🥑
+          </h3>
+        </div>
         <button
-          v-for="suggestion in PROMPT_SUGGESTIONS"
-          :key="suggestion"
-          type="button"
-          :disabled="isInitialLoading"
+          v-if="hasOngoingThread"
+          :disabled="isEndingChat || isInitialLoading"
           :class="[
-            '!px-4 !py-2 !rounded-full !text-sm !font-medium !transition-colors !duration-200 !shadow',
-            '!border !whitespace-nowrap',
-            clientSideTheme && isDark
-              ? '!bg-gray-800 !text-gray-100 !border-gray-700 hover:!bg-gray-700'
-              : '!bg-white !text-gray-800 !border-gray-200 hover:!bg-gray-100',
-            isInitialLoading && '!opacity-50 !cursor-not-allowed',
+            '!px-3 !py-1 !rounded-lg !text-sm !transition-colors !duration-200 !ease-in-out',
+            '!bg-indigo-600 !hover:bg-indigo-700 !text-white',
+            (isEndingChat || isInitialLoading) && '!opacity-50 !cursor-not-allowed',
           ]"
-          @click="setSuggestion(suggestion)"
+          @click="endChat"
         >
-          {{ suggestion }}
+          {{ isEndingChat ? "Ending..." : "End Chat" }}
         </button>
       </div>
-    </div>
 
-    <!-- Input Form -->
-    <form
-      :class="[
-        '!mt-4 !flex !rounded-lg !overflow-hidden !shadow-md',
-        clientSideTheme && isDark
-          ? '!bg-gray-800 !border !border-gray-700'
-          : '!bg-gray-100 !border !border-gray-200',
-      ]"
-      @submit.prevent="sendMessage"
-    >
-      <textarea
-        ref="inputRef"
-        v-model="userInput"
-        placeholder="Ask something about Steve..."
-        :class="[
-          '!flex-1 !border-0 !p-3 !outline-none !focus:ring-0 !focus:ring-offset-0 !resize-none',
-          '!min-h-[42px] !max-h-[200px] !overflow-y-auto',
-          clientSideTheme && isDark
-            ? '!bg-gray-800 !text-gray-100 !placeholder-gray-500'
-            : '!bg-gray-100 !text-gray-800 !placeholder-gray-400',
-        ]"
-        :disabled="loading || isInitialLoading"
-        rows="1"
-        @keydown="handleKeyDown"
-      ></textarea>
-      <button
-        type="submit"
-        class="!bg-indigo-600 !hover:bg-indigo-700 !text-white !px-4 !transition-colors !duration-200 !ease-in-out !flex !items-center !justify-center !min-w-[60px]"
-        :disabled="loading || isInitialLoading"
-      >
-        <svg
-          v-if="!loading"
-          xmlns="http://www.w3.org/2000/svg"
-          class="!h-5 !w-5"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-          />
-        </svg>
+      <!-- Messages Area -->
+      <div ref="chatContainerRef" class="!flex-1 !overflow-auto !space-y-4 !flex !flex-col !px-1">
         <div
-          v-else
-          class="!h-5 !w-5 !border-2 !border-t-transparent !border-white !rounded-full !animate-spin"
-        ></div>
-      </button>
-    </form>
-
-    <!-- Feedback Modal -->
-    <div
-      v-if="showFeedbackModal"
-      class="!absolute !inset-0 !flex !items-center !justify-center !z-50"
-    >
-      <div
-        :class="[
-          '!absolute !inset-0',
-          clientSideTheme && isDark ? '!bg-black !bg-opacity-60' : '!bg-white !bg-opacity-60',
-        ]"
-      ></div>
-      <div
-        :class="[
-          '!relative !rounded-lg !p-6 !w-96 !shadow-xl',
-          clientSideTheme && isDark ? '!bg-gray-800 !text-white' : '!bg-white !text-gray-800',
-        ]"
-      >
-        <h3
-          :class="[
-            '!text-lg !font-medium !mb-4',
-            clientSideTheme && isDark ? '!text-white' : '!text-gray-900',
-          ]"
+          v-for="(msg, index) in messages"
+          :key="index"
+          class="!flex !w-full !mb-3"
+          :class="[msg.role === 'user' ? '!justify-end' : '!justify-start']"
         >
-          How was your chat experience?
-        </h3>
-        <div class="!flex !space-x-4 !mb-6">
-          <button
+          <div
+            v-if="msg.content.trim()"
             :class="[
-              '!flex-1 !py-2 !px-4 !rounded-lg !transition-colors !duration-200',
-              feedback === 'good'
-                ? '!bg-green-500 !text-white'
+              '!rounded-lg !px-4 !py-3 !max-w-[85%] !shadow-md',
+              msg.role === 'user'
+                ? '!bg-indigo-600 !text-white'
                 : clientSideTheme && isDark
-                  ? '!bg-gray-700 !text-gray-300 !hover:bg-gray-600'
-                  : '!bg-gray-100 !text-gray-700 !hover:bg-gray-200',
+                  ? '!bg-gray-800 !text-gray-100 !border !border-gray-700'
+                  : '!bg-white !text-gray-800 !border !border-gray-200',
             ]"
-            :disabled="isInitialLoading"
-            @click="feedback = 'good'"
           >
-            Good 👍
-          </button>
-          <button
+            <div class="!flex !justify-between !items-center !mb-1">
+              <span
+                :class="[
+                  '!text-xs',
+                  msg.role === 'user'
+                    ? '!text-gray-200'
+                    : clientSideTheme && isDark
+                      ? '!text-gray-400'
+                      : '!text-gray-500',
+                ]"
+              >
+                {{ msg.role === "user" ? "You" : "Advocado" }}
+              </span>
+              <span
+                v-if="msg.timestamp"
+                :class="[
+                  '!text-xs !ml-4',
+                  msg.role === 'user'
+                    ? '!text-gray-200'
+                    : clientSideTheme && isDark
+                      ? '!text-gray-400'
+                      : '!text-gray-500',
+                ]"
+              >
+                {{ formatTime(msg.timestamp) }}
+              </span>
+            </div>
+            <!-- eslint-disable vue/no-v-html -->
+            <div
+              class="!whitespace-pre-wrap markdown-content"
+              v-html="parseMarkdown(msg.content)"
+            ></div>
+            <!-- eslint-enable -->
+          </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div v-if="loading" class="!flex !justify-start !w-full">
+          <div
             :class="[
-              '!flex-1 !py-2 !px-4 !rounded-lg !transition-colors !duration-200',
-              feedback === 'bad'
-                ? '!bg-red-500 !text-white'
-                : clientSideTheme && isDark
-                  ? '!bg-gray-700 !text-gray-300 !hover:bg-gray-600'
-                  : '!bg-gray-100 !text-gray-700 !hover:bg-gray-200',
+              '!rounded-lg !px-4 !py-3 !max-w-[85%] !shadow-md',
+              clientSideTheme && isDark
+                ? '!bg-gray-800 !text-gray-300 !border !border-gray-700'
+                : '!bg-white !text-gray-600 !border !border-gray-200',
             ]"
-            :disabled="isInitialLoading"
-            @click="feedback = 'bad'"
           >
-            Bad 👎
+            <div class="!flex !justify-between !items-center !mb-1">
+              <span
+                :class="
+                  clientSideTheme && isDark ? '!text-xs !text-gray-400' : '!text-xs !text-gray-500'
+                "
+              >
+                Advocado
+              </span>
+              <span
+                :class="
+                  clientSideTheme && isDark
+                    ? '!text-xs !text-gray-400 !ml-4'
+                    : '!text-xs !text-gray-500 !ml-4'
+                "
+              >
+                {{ formatTime(Date.now()) }}
+              </span>
+            </div>
+            <div class="!flex !items-center">
+              <span
+                v-for="(_, i) in 3"
+                :key="i"
+                :class="[
+                  '!inline-block !h-2 !w-2 !rounded-full !animate-pulse',
+                  clientSideTheme && isDark ? '!bg-gray-400' : '!bg-gray-300',
+                ]"
+                :style="{
+                  marginLeft: i > 0 ? '0.25rem' : 0,
+                  marginRight: i < 2 ? '0.25rem' : 0,
+                  animationDelay: `${i * 0.2}s`,
+                }"
+              ></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resize Handle -->
+      <div
+        class="!mb-6 !h-2 !w-full !cursor-ns-resize !flex !justify-center !items-center hover:!bg-gray-300 dark:hover:!bg-gray-700 !transition-colors !rounded-b-lg"
+        @mousedown="startResize"
+        @touchstart="startResize"
+      >
+        <div
+          :class="[
+            '!w-12 !h-1 !rounded-full',
+            clientSideTheme && isDark ? '!bg-gray-600' : '!bg-gray-300',
+          ]"
+        ></div>
+      </div>
+
+      <!-- Prompt Suggestions (in expanded mode) -->
+      <div class="!mb-0.5 !relative">
+        <div
+          ref="promptBarRef"
+          class="prompt-bar !flex !overflow-x-auto !space-x-2 !pb-1 !scroll-smooth !px-2"
+          @scroll="updatePromptScrollButtons"
+        >
+          <button
+            v-for="suggestion in PROMPT_SUGGESTIONS"
+            :key="suggestion"
+            type="button"
+            :disabled="isInitialLoading"
+            :class="[
+              '!px-4 !py-2 !rounded-full !text-sm !font-medium !transition-colors !duration-200 !shadow',
+              '!border !whitespace-nowrap',
+              clientSideTheme && isDark
+                ? '!bg-gray-800 !text-gray-100 !border-gray-700 hover:!bg-gray-700'
+                : '!bg-white !text-gray-800 !border-gray-200 hover:!bg-gray-100',
+              isInitialLoading && '!opacity-50 !cursor-not-allowed',
+            ]"
+            @click="setSuggestion(suggestion)"
+          >
+            {{ suggestion }}
           </button>
         </div>
-        <div class="!flex !justify-end !space-x-3">
-          <button
-            :class="[
-              '!px-4 !py-2 !rounded-lg !transition-colors !duration-200',
-              clientSideTheme && isDark
-                ? '!bg-gray-700 !text-gray-300 !hover:bg-gray-600'
-                : '!bg-gray-100 !text-gray-700 !hover:bg-gray-200',
-            ]"
-            :disabled="isInitialLoading"
-            @click="closeFeedbackModal"
+      </div>
+
+      <!-- Input Form -->
+      <form
+        :class="[
+          '!mt-4 !flex !rounded-lg !overflow-hidden !shadow-md',
+          clientSideTheme && isDark
+            ? '!bg-gray-800 !border !border-gray-700'
+            : '!bg-gray-100 !border !border-gray-200',
+        ]"
+        @submit.prevent="sendMessage"
+      >
+        <textarea
+          ref="inputRef"
+          v-model="userInput"
+          placeholder="Ask something about Steve..."
+          :class="[
+            '!flex-1 !border-0 !p-3 !outline-none !focus:ring-0 !focus:ring-offset-0 !resize-none',
+            '!min-h-[42px] !max-h-[200px] !overflow-y-auto',
+            clientSideTheme && isDark
+              ? '!bg-gray-800 !text-gray-100 !placeholder-gray-500'
+              : '!bg-gray-100 !text-gray-800 !placeholder-gray-400',
+          ]"
+          :disabled="loading || isInitialLoading"
+          rows="1"
+          @keydown="handleKeyDown"
+        ></textarea>
+        <button
+          type="submit"
+          :class="[
+            '!transition-all !duration-200 !ease-in-out !flex !items-center !justify-center !min-w-[60px] !px-4 !shadow-sm',
+            userInput.trim() && !loading && !isInitialLoading
+              ? '!bg-indigo-600 !hover:bg-indigo-700 !text-white'
+              : clientSideTheme && isDark
+                ? '!bg-gray-700 !text-gray-400 !cursor-not-allowed'
+                : '!bg-gray-200 !text-gray-400 !cursor-not-allowed',
+          ]"
+          :disabled="loading || isInitialLoading || !userInput.trim()"
+        >
+          <svg
+            v-if="!loading"
+            xmlns="http://www.w3.org/2000/svg"
+            class="!h-5 !w-5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
           >
-            Cancel
-          </button>
-          <button
-            :disabled="!feedback || isEndingChat || isInitialLoading"
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+            />
+          </svg>
+          <div
+            v-else
+            class="!h-5 !w-5 !border-2 !border-t-transparent !border-current !rounded-full !animate-spin"
+          ></div>
+        </button>
+      </form>
+
+      <!-- Feedback Modal -->
+      <div
+        v-if="showFeedbackModal"
+        class="!absolute !inset-0 !flex !items-center !justify-center !z-50"
+      >
+        <div
+          :class="[
+            '!absolute !inset-0',
+            clientSideTheme && isDark ? '!bg-black !bg-opacity-60' : '!bg-white !bg-opacity-60',
+          ]"
+        ></div>
+        <div
+          :class="[
+            '!relative !rounded-lg !p-6 !w-96 !shadow-xl',
+            clientSideTheme && isDark ? '!bg-gray-800 !text-white' : '!bg-white !text-gray-800',
+          ]"
+        >
+          <h3
             :class="[
-              '!px-4 !py-2 !rounded-lg !transition-colors !duration-200',
-              !feedback || isEndingChat || isInitialLoading
-                ? '!bg-gray-400 !text-white !cursor-not-allowed'
-                : '!bg-indigo-600 !text-white !hover:bg-indigo-700',
+              '!text-lg !font-medium !mb-4',
+              clientSideTheme && isDark ? '!text-white' : '!text-gray-900',
             ]"
-            @click="submitFeedback"
           >
-            {{ isEndingChat ? "Ending..." : "End Chat" }}
-          </button>
+            How was your chat experience?
+          </h3>
+          <div class="!flex !space-x-4 !mb-6">
+            <button
+              :class="[
+                '!flex-1 !py-2 !px-4 !rounded-lg !transition-colors !duration-200',
+                feedback === 'good'
+                  ? '!bg-green-500 !text-white'
+                  : clientSideTheme && isDark
+                    ? '!bg-gray-700 !text-gray-300 !hover:bg-gray-600'
+                    : '!bg-gray-100 !text-gray-700 !hover:bg-gray-200',
+              ]"
+              :disabled="isInitialLoading"
+              @click="feedback = 'good'"
+            >
+              Good 👍
+            </button>
+            <button
+              :class="[
+                '!flex-1 !py-2 !px-4 !rounded-lg !transition-colors !duration-200',
+                feedback === 'bad'
+                  ? '!bg-red-500 !text-white'
+                  : clientSideTheme && isDark
+                    ? '!bg-gray-700 !text-gray-300 !hover:bg-gray-600'
+                    : '!bg-gray-100 !text-gray-700 !hover:bg-gray-200',
+              ]"
+              :disabled="isInitialLoading"
+              @click="feedback = 'bad'"
+            >
+              Bad 👎
+            </button>
+          </div>
+          <div class="!flex !justify-end !space-x-3">
+            <button
+              :class="[
+                '!px-4 !py-2 !rounded-lg !transition-colors !duration-200',
+                clientSideTheme && isDark
+                  ? '!bg-gray-700 !text-gray-300 !hover:bg-gray-600'
+                  : '!bg-gray-100 !text-gray-700 !hover:bg-gray-200',
+              ]"
+              :disabled="isInitialLoading"
+              @click="closeFeedbackModal"
+            >
+              Cancel
+            </button>
+            <button
+              :disabled="!feedback || isEndingChat || isInitialLoading"
+              :class="[
+                '!px-4 !py-2 !rounded-lg !transition-colors !duration-200',
+                !feedback || isEndingChat || isInitialLoading
+                  ? '!bg-gray-400 !text-white !cursor-not-allowed'
+                  : '!bg-indigo-600 !text-white !hover:bg-indigo-700',
+              ]"
+              @click="submitFeedback"
+            >
+              {{ isEndingChat ? "Ending..." : "End Chat" }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
