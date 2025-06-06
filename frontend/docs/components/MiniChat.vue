@@ -39,11 +39,13 @@ const WITTY_MESSAGES = [
   "Looks like Advocado is doing some emergency guac maintenance! 🛠️ [Check out Steve's profile](/about) or try again in a bit!",
 ] as const;
 
-const WELCOME_MESSAGE: ChatMessage = {
-  role: "assistant",
-  content: "Hi! What would you like to learn about Steve today?",
-  timestamp: Date.now(),
-};
+const PROMPT_SUGGESTIONS = [
+  "Tell me about Steve's background",
+  "What are Steve's top skills?",
+  "Summarize Steve's work experience",
+  "Show me Steve's recent projects",
+  "How can I contact Steve?",
+] as const;
 
 const API_BASE = "https://advocado-agent.vercel.app";
 
@@ -59,6 +61,10 @@ const feedback = ref<"good" | "bad" | null>(null);
 const threadId = ref<string | null>(null);
 const isChatOpen = ref(false);
 const userInput = ref("");
+
+// --- New state for compact mode ---
+const isCompactMode = ref(true); // Start in compact mode
+const hasStartedChat = ref(false); // Track if user has started chatting
 
 // --- DOM Refs ---
 const inputRef = ref<HTMLTextAreaElement | null>(null);
@@ -109,6 +115,15 @@ const resizeTextarea = (): void => {
   inputRef.value.style.height = "auto";
   const newHeight = Math.min(inputRef.value.scrollHeight, 100);
   inputRef.value.style.height = `${newHeight}px`;
+};
+
+// --- Expand chat to full mode ---
+const expandToFullMode = async (): Promise<void> => {
+  isCompactMode.value = false;
+  hasStartedChat.value = true;
+
+  await nextTick();
+  scrollToBottom();
 };
 
 // --- Storage Functions ---
@@ -173,9 +188,22 @@ const handleStorageChange = (event: StorageEvent): void => {
             localStorage.setItem("miniChatOpen", "true");
           }
           messages.value = newMessages;
+
+          // Sync compact mode state based on messages
+          if (newMessages.length > 0) {
+            isCompactMode.value = false;
+            hasStartedChat.value = true;
+          } else {
+            isCompactMode.value = true;
+            hasStartedChat.value = false;
+          }
         }
       } catch (error) {
         console.error("Error parsing chat messages from storage:", error);
+        // On error, reset to safe state
+        messages.value = [];
+        isCompactMode.value = true;
+        hasStartedChat.value = false;
       }
       break;
     case "hadChatInteraction":
@@ -193,7 +221,9 @@ const handleStorageChange = (event: StorageEvent): void => {
     case "threadId":
       threadId.value = event.newValue;
       if (!event.newValue) {
-        messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
+        messages.value = [];
+        isCompactMode.value = true;
+        hasStartedChat.value = false;
         localStorage.removeItem("chatEnding");
       }
       break;
@@ -204,6 +234,8 @@ const handleStorageChange = (event: StorageEvent): void => {
 const sendMessage = async (): Promise<void> => {
   if (!userInput.value.trim()) return;
 
+  const isFirstMessage = messages.value.length === 0;
+
   const userMessage: ChatMessage = {
     role: "user",
     content: userInput.value,
@@ -211,6 +243,11 @@ const sendMessage = async (): Promise<void> => {
   };
 
   messages.value.push(userMessage);
+
+  if (isFirstMessage) {
+    await expandToFullMode();
+  }
+
   if (isClient.value) localStorage.setItem("hadChatInteraction", "true");
 
   let currentAssistantContent = "";
@@ -323,7 +360,9 @@ const submitFeedback = async (): Promise<void> => {
     localStorage.removeItem("threadId");
     localStorage.removeItem("chatMessages");
     threadId.value = null;
-    messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
+    messages.value = [];
+    isCompactMode.value = true;
+    hasStartedChat.value = false;
   } catch (error) {
     console.error("Error ending chat:", error);
     messages.value.push({
@@ -343,6 +382,11 @@ const closeFeedbackModal = (): void => {
   feedback.value = null;
 };
 
+const setSuggestion = (suggestion: string): void => {
+  userInput.value = suggestion;
+  inputRef.value?.focus();
+};
+
 const toggleChat = (): void => {
   isChatOpen.value = !isChatOpen.value;
   if (isClient.value) localStorage.setItem("miniChatOpen", isChatOpen.value.toString());
@@ -358,7 +402,7 @@ watch(messages, saveMessagesToStorage, { deep: true });
 watch(isChatOpen, async newVal => {
   if (newVal) {
     await nextTick();
-    scrollToBottom();
+    if (!isCompactMode.value) scrollToBottom();
     nextTick(() => inputRef.value?.focus());
   }
 });
@@ -368,7 +412,7 @@ watch(
   async () => {
     if (!isClient.value) return;
     saveMessagesToStorage();
-    if (isChatOpen.value) {
+    if (isChatOpen.value && !isCompactMode.value) {
       await nextTick();
       scrollToBottom();
     }
@@ -386,13 +430,20 @@ onMounted(async () => {
 
   if (storedMessages) {
     try {
-      messages.value = JSON.parse(storedMessages);
+      const parsedMessages = JSON.parse(storedMessages);
+      messages.value = parsedMessages;
+
+      // If we have stored messages, we're not in compact mode
+      if (parsedMessages.length > 0) {
+        isCompactMode.value = false;
+        hasStartedChat.value = true;
+      }
     } catch (error) {
       console.error("Error parsing stored messages:", error);
-      messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
+      messages.value = [];
     }
   } else {
-    messages.value = [{ ...WELCOME_MESSAGE, timestamp: Date.now() }];
+    messages.value = [];
   }
 
   // Initial chat state setup
@@ -422,23 +473,44 @@ onMounted(async () => {
             timestamp: Date.now(),
           }));
           saveMessagesToStorage();
+
+          // If we have messages from backend, we're not in compact mode
+          if (messagesData.length > 0) {
+            isCompactMode.value = false;
+            hasStartedChat.value = true;
+          }
+        } else {
+          // Invalid response data - reset to fresh state
+          localStorage.removeItem("threadId");
+          threadId.value = null;
+          messages.value = [];
+          isCompactMode.value = true;
+          hasStartedChat.value = false;
         }
       } else {
+        // API error or thread not found - reset to fresh state
         localStorage.removeItem("threadId");
         threadId.value = null;
+        messages.value = [];
+        isCompactMode.value = true;
+        hasStartedChat.value = false;
       }
     } catch (error) {
       console.error("Error fetching thread messages:", error);
+      // Network error - reset to fresh state
       localStorage.removeItem("threadId");
       threadId.value = null;
+      messages.value = [];
+      isCompactMode.value = true;
+      hasStartedChat.value = false;
     } finally {
       isInitialLoading.value = false;
       await nextTick();
-      if (isChatOpen.value) scrollToBottom();
+      if (isChatOpen.value && !isCompactMode.value) scrollToBottom();
     }
   } else {
     await nextTick();
-    if (isChatOpen.value) scrollToBottom();
+    if (isChatOpen.value && !isCompactMode.value) scrollToBottom();
   }
 
   window.addEventListener("storage", handleStorageChange);
@@ -465,8 +537,12 @@ onUnmounted(() => {
       v-else
       :style="cssVars"
       :class="[
-        '!rounded-lg !shadow-xl !transition-all !w-[calc(100vw-2rem)] sm:!w-96 !max-w-[24rem] !bg-white dark:!bg-gray-900',
-        '!border dark:!border-gray-700 !flex !flex-col',
+        '!rounded-2xl !shadow-2xl !transition-all !w-[calc(100vw-2rem)] sm:!w-[400px] !max-w-[400px]',
+        clientSideTheme && isDark
+          ? '!bg-gray-900 !border !border-gray-700'
+          : '!bg-white !border !border-gray-200',
+        '!flex !flex-col',
+        isCompactMode ? '!h-auto' : '!max-h-[32rem]',
       ]"
     >
       <!-- Loading Overlay -->
@@ -484,172 +560,82 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Header -->
-      <div
-        :class="[
-          '!p-3 !flex !items-center !justify-between !border-b',
-          clientSideTheme && isDark ? '!border-gray-700' : '!border-gray-200',
-        ]"
-      >
-        <div class="!flex !items-center !gap-2">
-          <div class="!h-2 !w-2 !rounded-full !bg-green-500"></div>
-          <h3
+      <!-- Compact Mode - Initial State -->
+      <div v-if="isCompactMode" class="!relative !p-6 !pt-8">
+        <!-- Close button -->
+        <button
+          :class="[
+            '!absolute !top-3 !right-3 !p-1.5 !rounded-full !transition-colors',
+            clientSideTheme && isDark
+              ? '!text-gray-400 hover:!text-gray-200 hover:!bg-gray-700'
+              : '!text-gray-500 hover:!text-gray-700 hover:!bg-gray-100',
+          ]"
+          @click="toggleChat"
+        >
+          <svg class="!w-4 !h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M6 18L18 6M6 6l12 12"
+            />
+          </svg>
+        </button>
+
+        <!-- Welcome Header -->
+        <div class="!text-center !mb-6">
+          <div class="!flex !items-center !justify-center !mb-3">
+            <div class="!h-3 !w-3 !rounded-full !bg-green-500 !mr-2"></div>
+            <h3
+              :class="[
+                '!text-xl !font-bold',
+                clientSideTheme && isDark ? '!text-white' : '!text-gray-900',
+              ]"
+            >
+              Chat with Advocado 🥑
+            </h3>
+          </div>
+          <p
             :class="[
-              '!text-base !font-medium',
-              clientSideTheme && isDark ? '!text-gray-100' : '!text-gray-800',
-            ]"
-          >
-            Chat with Advocado 🥑
-          </h3>
-        </div>
-        <div class="!flex !items-center !gap-2">
-          <button
-            v-if="hasOngoingThread"
-            :disabled="isEndingChat || isInitialLoading"
-            :class="[
-              '!px-2 !py-1 !rounded !text-sm !transition-colors',
-              '!bg-indigo-600 !text-white hover:!bg-indigo-700',
-              (isEndingChat || isInitialLoading) && '!opacity-50 !cursor-not-allowed',
-            ]"
-            @click="endChat"
-          >
-            {{ isEndingChat ? "Ending..." : "End" }}
-          </button>
-          <button
-            :class="[
-              '!p-1 !rounded hover:!bg-gray-100 dark:hover:!bg-gray-800',
+              '!text-base !leading-relaxed',
               clientSideTheme && isDark ? '!text-gray-300' : '!text-gray-600',
             ]"
-            @click="toggleChat"
           >
-            <svg class="!w-4 !h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
+            Hi! What would you like to learn about Steve today?
+          </p>
         </div>
-      </div>
 
-      <!-- Messages Area -->
-      <div ref="chatContainerRef" class="!flex-1 !overflow-y-auto !p-3 !space-y-3 !max-h-96">
-        <div
-          v-for="(msg, index) in messages"
-          :key="index"
-          class="!flex !w-full"
-          :class="[msg.role === 'user' ? '!justify-end' : '!justify-start']"
-        >
-          <div
-            v-if="msg.content.trim()"
-            :class="[
-              '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-base !shadow-md',
-              msg.role === 'user'
-                ? '!bg-indigo-600 !text-white'
-                : clientSideTheme && isDark
-                  ? '!bg-gray-800 !text-gray-100 !border !border-gray-700'
-                  : '!bg-white !text-gray-800 !border !border-gray-200',
-            ]"
-          >
-            <div class="!flex !justify-between !items-center !mb-1">
-              <span
-                :class="[
-                  '!text-xs',
-                  msg.role === 'user'
-                    ? '!text-gray-200'
-                    : clientSideTheme && isDark
-                      ? '!text-gray-400'
-                      : '!text-gray-500',
-                ]"
-              >
-                {{ msg.role === "user" ? "You" : "Advocado" }}
-              </span>
-              <span
-                v-if="msg.timestamp"
-                :class="[
-                  '!text-xs !ml-4',
-                  msg.role === 'user'
-                    ? '!text-gray-200'
-                    : clientSideTheme && isDark
-                      ? '!text-gray-400'
-                      : '!text-gray-500',
-                ]"
-              >
-                {{ formatTime(msg.timestamp) }}
-              </span>
-            </div>
-            <!-- eslint-disable vue/no-v-html -->
-            <div
-              class="!whitespace-pre-wrap markdown-content"
-              v-html="parseMarkdown(msg.content)"
-            ></div>
-            <!-- eslint-enable -->
+        <!-- Prompt Suggestions -->
+        <div class="!mb-6">
+          <div class="!flex !flex-col !gap-3">
+            <button
+              v-for="suggestion in PROMPT_SUGGESTIONS.slice(0, 3)"
+              :key="suggestion"
+              type="button"
+              :disabled="isInitialLoading"
+              :class="[
+                '!w-full !px-4 !py-3 !rounded-xl !text-sm !font-medium !transition-all !duration-200',
+                '!border !text-left !shadow-sm',
+                clientSideTheme && isDark
+                  ? '!bg-gray-800 !text-gray-200 !border-gray-600 hover:!bg-gray-700 hover:!border-gray-500'
+                  : '!bg-gray-50 !text-gray-700 !border-gray-200 hover:!bg-gray-100 hover:!border-gray-300',
+                isInitialLoading && '!opacity-50 !cursor-not-allowed',
+              ]"
+              @click="setSuggestion(suggestion)"
+            >
+              {{ suggestion }}
+            </button>
           </div>
         </div>
 
-        <!-- Loading Indicator -->
-        <div v-if="loading" class="!flex !justify-start !w-full">
-          <div
-            :class="[
-              '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-base !shadow-md',
-              clientSideTheme && isDark
-                ? '!bg-gray-800 !text-gray-300 !border !border-gray-700'
-                : '!bg-white !text-gray-600 !border !border-gray-200',
-            ]"
-          >
-            <div class="!flex !justify-between !items-center !mb-1">
-              <span
-                :class="
-                  clientSideTheme && isDark ? '!text-xs !text-gray-400' : '!text-xs !text-gray-500'
-                "
-              >
-                Advocado
-              </span>
-              <span
-                :class="
-                  clientSideTheme && isDark
-                    ? '!text-xs !text-gray-400 !ml-4'
-                    : '!text-xs !text-gray-500 !ml-4'
-                "
-              >
-                {{ formatTime(Date.now()) }}
-              </span>
-            </div>
-            <div class="!flex !items-center">
-              <span
-                v-for="(_, i) in 3"
-                :key="i"
-                :class="[
-                  '!inline-block !h-1.5 !w-1.5 !rounded-full !animate-pulse',
-                  clientSideTheme && isDark ? '!bg-gray-400' : '!bg-gray-300',
-                ]"
-                :style="{
-                  marginLeft: i > 0 ? '0.25rem' : 0,
-                  marginRight: i < 2 ? '0.25rem' : 0,
-                  animationDelay: `${i * 0.2}s`,
-                }"
-              ></span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Input Area -->
-      <div
-        :class="[
-          '!p-3 !border-t',
-          clientSideTheme && isDark ? '!border-gray-700' : '!border-gray-200',
-        ]"
-      >
+        <!-- Input Form -->
         <form class="!flex !gap-2" @submit.prevent="sendMessage">
           <textarea
             ref="inputRef"
             v-model="userInput"
             placeholder="Ask something about Steve..."
             :class="[
-              '!flex-1 !rounded-lg !p-2 !text-base !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0',
+              '!flex-1 !rounded-lg !p-2 !text-sm !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0',
               clientSideTheme && isDark
                 ? '!bg-gray-800 !text-gray-100 !placeholder-gray-400'
                 : '!bg-gray-100 !text-gray-800 !placeholder-gray-500',
@@ -660,8 +646,15 @@ onUnmounted(() => {
           ></textarea>
           <button
             type="submit"
-            class="!bg-indigo-600 hover:!bg-indigo-700 !text-white !px-3 !rounded-lg !transition-colors !flex !items-center !justify-center !min-w-[48px]"
-            :disabled="loading || isInitialLoading"
+            :class="[
+              '!rounded-lg !px-3 !transition-all !duration-200 !flex !items-center !justify-center !min-w-[48px]',
+              userInput.trim() && !loading && !isInitialLoading
+                ? '!bg-indigo-600 hover:!bg-indigo-700 !text-white'
+                : clientSideTheme && isDark
+                  ? '!bg-gray-700 !text-gray-400 !cursor-not-allowed'
+                  : '!bg-gray-200 !text-gray-400 !cursor-not-allowed',
+            ]"
+            :disabled="loading || isInitialLoading || !userInput.trim()"
           >
             <svg
               v-if="!loading"
@@ -680,10 +673,224 @@ onUnmounted(() => {
             </svg>
             <div
               v-else
-              class="!h-4 !w-4 !border-2 !border-t-transparent !border-white !rounded-full !animate-spin"
+              class="!h-4 !w-4 !border-2 !border-t-transparent !border-current !rounded-full !animate-spin"
             ></div>
           </button>
         </form>
+      </div>
+
+      <!-- Full Mode - After First Message -->
+      <div v-else class="!flex !flex-col !h-full">
+        <!-- Header -->
+        <div
+          :class="[
+            '!p-3 !flex !items-center !justify-between !border-b',
+            clientSideTheme && isDark ? '!border-gray-700' : '!border-gray-200',
+          ]"
+        >
+          <div class="!flex !items-center !gap-2">
+            <div class="!h-2 !w-2 !rounded-full !bg-green-500"></div>
+            <h3
+              :class="[
+                '!text-base !font-medium',
+                clientSideTheme && isDark ? '!text-gray-100' : '!text-gray-800',
+              ]"
+            >
+              Chat with Advocado 🥑
+            </h3>
+          </div>
+          <div class="!flex !items-center !gap-2">
+            <button
+              v-if="hasOngoingThread"
+              :disabled="isEndingChat || isInitialLoading"
+              :class="[
+                '!px-2 !py-1 !rounded !text-sm !transition-colors',
+                '!bg-indigo-600 !text-white hover:!bg-indigo-700',
+                (isEndingChat || isInitialLoading) && '!opacity-50 !cursor-not-allowed',
+              ]"
+              @click="endChat"
+            >
+              {{ isEndingChat ? "Ending..." : "End" }}
+            </button>
+            <button
+              :class="[
+                '!p-1 !rounded hover:!bg-gray-100 dark:hover:!bg-gray-800',
+                clientSideTheme && isDark ? '!text-gray-300' : '!text-gray-600',
+              ]"
+              @click="toggleChat"
+            >
+              <svg class="!w-4 !h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Messages Area -->
+        <div ref="chatContainerRef" class="!flex-1 !overflow-y-auto !p-3 !space-y-3 !max-h-80">
+          <div
+            v-for="(msg, index) in messages"
+            :key="index"
+            class="!flex !w-full"
+            :class="[msg.role === 'user' ? '!justify-end' : '!justify-start']"
+          >
+            <div
+              v-if="msg.content.trim()"
+              :class="[
+                '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-sm !shadow-md',
+                msg.role === 'user'
+                  ? '!bg-indigo-600 !text-white'
+                  : clientSideTheme && isDark
+                    ? '!bg-gray-800 !text-gray-100 !border !border-gray-700'
+                    : '!bg-white !text-gray-800 !border !border-gray-200',
+              ]"
+            >
+              <div class="!flex !justify-between !items-center !mb-1">
+                <span
+                  :class="[
+                    '!text-xs',
+                    msg.role === 'user'
+                      ? '!text-gray-200'
+                      : clientSideTheme && isDark
+                        ? '!text-gray-400'
+                        : '!text-gray-500',
+                  ]"
+                >
+                  {{ msg.role === "user" ? "You" : "Advocado" }}
+                </span>
+                <span
+                  v-if="msg.timestamp"
+                  :class="[
+                    '!text-xs !ml-4',
+                    msg.role === 'user'
+                      ? '!text-gray-200'
+                      : clientSideTheme && isDark
+                        ? '!text-gray-400'
+                        : '!text-gray-500',
+                  ]"
+                >
+                  {{ formatTime(msg.timestamp) }}
+                </span>
+              </div>
+              <!-- eslint-disable vue/no-v-html -->
+              <div
+                class="!whitespace-pre-wrap markdown-content"
+                v-html="parseMarkdown(msg.content)"
+              ></div>
+              <!-- eslint-enable -->
+            </div>
+          </div>
+
+          <!-- Loading Indicator -->
+          <div v-if="loading" class="!flex !justify-start !w-full">
+            <div
+              :class="[
+                '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-sm !shadow-md',
+                clientSideTheme && isDark
+                  ? '!bg-gray-800 !text-gray-300 !border !border-gray-700'
+                  : '!bg-white !text-gray-600 !border !border-gray-200',
+              ]"
+            >
+              <div class="!flex !justify-between !items-center !mb-1">
+                <span
+                  :class="
+                    clientSideTheme && isDark
+                      ? '!text-xs !text-gray-400'
+                      : '!text-xs !text-gray-500'
+                  "
+                >
+                  Advocado
+                </span>
+                <span
+                  :class="
+                    clientSideTheme && isDark
+                      ? '!text-xs !text-gray-400 !ml-4'
+                      : '!text-xs !text-gray-500 !ml-4'
+                  "
+                >
+                  {{ formatTime(Date.now()) }}
+                </span>
+              </div>
+              <div class="!flex !items-center">
+                <span
+                  v-for="(_, i) in 3"
+                  :key="i"
+                  :class="[
+                    '!inline-block !h-1.5 !w-1.5 !rounded-full !animate-pulse',
+                    clientSideTheme && isDark ? '!bg-gray-400' : '!bg-gray-300',
+                  ]"
+                  :style="{
+                    marginLeft: i > 0 ? '0.25rem' : 0,
+                    marginRight: i < 2 ? '0.25rem' : 0,
+                    animationDelay: `${i * 0.2}s`,
+                  }"
+                ></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Input Area -->
+        <div
+          :class="[
+            '!p-3 !border-t',
+            clientSideTheme && isDark ? '!border-gray-700' : '!border-gray-200',
+          ]"
+        >
+          <form class="!flex !gap-2" @submit.prevent="sendMessage">
+            <textarea
+              ref="inputRef"
+              v-model="userInput"
+              placeholder="Ask something about Steve..."
+              :class="[
+                '!flex-1 !rounded-lg !p-2 !text-sm !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0',
+                clientSideTheme && isDark
+                  ? '!bg-gray-800 !text-gray-100 !placeholder-gray-400'
+                  : '!bg-gray-100 !text-gray-800 !placeholder-gray-500',
+              ]"
+              :disabled="loading || isInitialLoading"
+              rows="1"
+              @keydown="handleKeyDown"
+            ></textarea>
+            <button
+              type="submit"
+              :class="[
+                '!rounded-lg !px-3 !transition-all !duration-200 !flex !items-center !justify-center !min-w-[48px]',
+                userInput.trim() && !loading && !isInitialLoading
+                  ? '!bg-indigo-600 hover:!bg-indigo-700 !text-white'
+                  : clientSideTheme && isDark
+                    ? '!bg-gray-700 !text-gray-400 !cursor-not-allowed'
+                    : '!bg-gray-200 !text-gray-400 !cursor-not-allowed',
+              ]"
+              :disabled="loading || isInitialLoading || !userInput.trim()"
+            >
+              <svg
+                v-if="!loading"
+                xmlns="http://www.w3.org/2000/svg"
+                class="!h-4 !w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+                />
+              </svg>
+              <div
+                v-else
+                class="!h-4 !w-4 !border-2 !border-t-transparent !border-current !rounded-full !animate-spin"
+              ></div>
+            </button>
+          </form>
+        </div>
       </div>
 
       <!-- Feedback Modal -->
