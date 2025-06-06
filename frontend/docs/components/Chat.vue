@@ -716,7 +716,7 @@ onBeforeUnmount(cleanupEventListeners);
         <textarea
           ref="inputRef"
           v-model="userInput"
-          placeholder="Ask something about Steve..."
+          placeholder="Ask about Steve..."
           :class="[
             '!flex-1 !border-0 !p-4 !outline-none !focus:ring-0 !focus:ring-offset-0 !resize-none',
             '!min-h-[56px] !max-h-[200px] !overflow-y-auto !text-base',
@@ -976,7 +976,7 @@ onBeforeUnmount(cleanupEventListeners);
         <textarea
           ref="inputRef"
           v-model="userInput"
-          placeholder="Ask something about Steve..."
+          placeholder="Ask about Steve..."
           :class="[
             '!flex-1 !border-0 !p-3 !outline-none !focus:ring-0 !focus:ring-offset-0 !resize-none',
             '!min-h-[42px] !max-h-[200px] !overflow-y-auto',
