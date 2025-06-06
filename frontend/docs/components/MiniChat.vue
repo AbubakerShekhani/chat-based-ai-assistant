@@ -614,7 +614,7 @@ onUnmounted(() => {
               type="button"
               :disabled="isInitialLoading"
               :class="[
-                '!w-full !px-4 !py-3 !rounded-xl !text-sm !font-medium !transition-all !duration-200',
+                '!w-full !px-4 !py-3 !rounded-xl !text-base !font-medium !transition-all !duration-200',
                 '!border !text-left !shadow-sm',
                 clientSideTheme && isDark
                   ? '!bg-gray-800 !text-gray-200 !border-gray-600 hover:!bg-gray-700 hover:!border-gray-500'
@@ -635,8 +635,8 @@ onUnmounted(() => {
             v-model="userInput"
             placeholder="AMA about Steve! 🎤"
             :class="[
-              '!flex-1 !rounded-lg !p-2 !text-sm !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0',
-              'mobile-textarea, !overflow-y-auto',
+              '!flex-1 !rounded-lg !p-2 !text-base !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0',
+              '!overflow-y-auto',
               clientSideTheme && isDark
                 ? '!bg-gray-800 !text-gray-100 !placeholder-gray-400'
                 : '!bg-gray-100 !text-gray-800 !placeholder-gray-500',
@@ -706,7 +706,7 @@ onUnmounted(() => {
               v-if="hasOngoingThread"
               :disabled="isEndingChat || isInitialLoading"
               :class="[
-                '!px-2 !py-1 !rounded !text-sm !transition-colors',
+                '!px-2 !py-1 !rounded !text-base !transition-colors',
                 '!bg-indigo-600 !text-white hover:!bg-indigo-700',
                 (isEndingChat || isInitialLoading) && '!opacity-50 !cursor-not-allowed',
               ]"
@@ -744,7 +744,7 @@ onUnmounted(() => {
             <div
               v-if="msg.content.trim()"
               :class="[
-                '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-sm !shadow-md',
+                '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-base !shadow-md',
                 msg.role === 'user'
                   ? '!bg-indigo-600 !text-white'
                   : clientSideTheme && isDark
@@ -755,7 +755,7 @@ onUnmounted(() => {
               <div class="!flex !justify-between !items-center !mb-1">
                 <span
                   :class="[
-                    '!text-xs',
+                    '!text-sm',
                     msg.role === 'user'
                       ? '!text-gray-200'
                       : clientSideTheme && isDark
@@ -768,7 +768,7 @@ onUnmounted(() => {
                 <span
                   v-if="msg.timestamp"
                   :class="[
-                    '!text-xs !ml-4',
+                    '!text-sm !ml-4',
                     msg.role === 'user'
                       ? '!text-gray-200'
                       : clientSideTheme && isDark
@@ -792,7 +792,7 @@ onUnmounted(() => {
           <div v-if="loading" class="!flex !justify-start !w-full">
             <div
               :class="[
-                '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-sm !shadow-md',
+                '!rounded-lg !px-3 !py-2 !max-w-[85%] !text-base !shadow-md',
                 clientSideTheme && isDark
                   ? '!bg-gray-800 !text-gray-300 !border !border-gray-700'
                   : '!bg-white !text-gray-600 !border !border-gray-200',
@@ -802,8 +802,8 @@ onUnmounted(() => {
                 <span
                   :class="
                     clientSideTheme && isDark
-                      ? '!text-xs !text-gray-400'
-                      : '!text-xs !text-gray-500'
+                      ? '!text-sm !text-gray-400'
+                      : '!text-sm !text-gray-500'
                   "
                 >
                   Advocado
@@ -811,8 +811,8 @@ onUnmounted(() => {
                 <span
                   :class="
                     clientSideTheme && isDark
-                      ? '!text-xs !text-gray-400 !ml-4'
-                      : '!text-xs !text-gray-500 !ml-4'
+                      ? '!text-sm !text-gray-400 !ml-4'
+                      : '!text-sm !text-gray-500 !ml-4'
                   "
                 >
                   {{ formatTime(Date.now()) }}
@@ -850,8 +850,8 @@ onUnmounted(() => {
               v-model="userInput"
               placeholder="AMA about Steve! 🎤"
               :class="[
-                '!flex-1 !rounded-lg !p-2 !text-sm !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0',
-                'mobile-textarea, !overflow-y-auto',
+                '!flex-1 !rounded-lg !p-2 !text-base !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0',
+                '!overflow-y-auto',
                 clientSideTheme && isDark
                   ? '!bg-gray-800 !text-gray-100 !placeholder-gray-400'
                   : '!bg-gray-100 !text-gray-800 !placeholder-gray-500',
@@ -919,7 +919,7 @@ onUnmounted(() => {
           <div class="!flex !space-x-2 !mb-4">
             <button
               :class="[
-                '!flex-1 !py-1 !px-2 !rounded !text-sm !transition-colors',
+                '!flex-1 !py-1 !px-2 !rounded !text-base !transition-colors',
                 feedback === 'good'
                   ? '!bg-green-500 !text-white'
                   : clientSideTheme && isDark
@@ -933,7 +933,7 @@ onUnmounted(() => {
             </button>
             <button
               :class="[
-                '!flex-1 !py-1 !px-2 !rounded !text-sm !transition-colors',
+                '!flex-1 !py-1 !px-2 !rounded !text-base !transition-colors',
                 feedback === 'bad'
                   ? '!bg-red-500 !text-white'
                   : clientSideTheme && isDark
@@ -949,7 +949,7 @@ onUnmounted(() => {
           <div class="!flex !justify-end !space-x-2">
             <button
               :class="[
-                '!px-3 !py-1 !rounded !text-sm !transition-colors',
+                '!px-3 !py-1 !rounded !text-base !transition-colors',
                 clientSideTheme && isDark
                   ? '!bg-gray-700 !text-gray-300 !hover:bg-gray-600'
                   : '!bg-gray-100 !text-gray-700 !hover:bg-gray-200',
@@ -962,7 +962,7 @@ onUnmounted(() => {
             <button
               :disabled="!feedback || isEndingChat || isInitialLoading"
               :class="[
-                '!px-3 !py-1 !rounded !text-sm !transition-colors',
+                '!px-3 !py-1 !rounded !text-base !transition-colors',
                 !feedback || isEndingChat || isInitialLoading
                   ? '!bg-gray-400 !text-white !cursor-not-allowed'
                   : '!bg-indigo-600 !text-white hover:!bg-indigo-700',
@@ -1017,15 +1017,6 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 0.75rem;
-}
-
-@media screen and (max-width: 768px) {
-  .mobile-textarea {
-    font-size: 16px !important;
-    transform: scale(0.875);
-    transform-origin: left top;
-    width: calc(100% / 0.875);
-  }
 }
 
 :deep(.markdown-content) {
