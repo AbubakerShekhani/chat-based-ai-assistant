@@ -636,6 +636,7 @@ onUnmounted(() => {
             placeholder="AMA about Steve! 🎤"
             :class="[
               '!flex-1 !rounded-lg !p-2 !text-sm !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0',
+              'mobile-textarea',
               clientSideTheme && isDark
                 ? '!bg-gray-800 !text-gray-100 !placeholder-gray-400'
                 : '!bg-gray-100 !text-gray-800 !placeholder-gray-500',
@@ -849,6 +850,7 @@ onUnmounted(() => {
               placeholder="AMA about Steve! 🎤"
               :class="[
                 '!flex-1 !rounded-lg !p-2 !text-sm !resize-none !min-h-[2.5rem] !max-h-[100px] !border-0 !outline-none !focus:ring-0 !focus:ring-offset-0',
+                'mobile-textarea',
                 clientSideTheme && isDark
                   ? '!bg-gray-800 !text-gray-100 !placeholder-gray-400'
                   : '!bg-gray-100 !text-gray-800 !placeholder-gray-500',

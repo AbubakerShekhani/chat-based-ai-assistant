@@ -68,6 +68,11 @@ const isMobile = ref(false);
 const isCompactMode = ref(true); // Start in compact mode
 const hasStartedChat = ref(false); // Track if user has started chatting
 
+// --- Scroll behavior state ---
+const hasUserScrolledManually = ref(false);
+const isInitialPageLoad = ref(true);
+const hasCompletedInitialScroll = ref(false);
+
 // --- DOM Refs ---
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const chatContainerRef = ref<HTMLDivElement | null>(null);
@@ -139,7 +144,62 @@ const updatePromptScrollButtons = (): void => {
   showRightScroll.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
 };
 
-// --- Expand chat window ---
+// --- Track user scroll interactions ---
+const handleUserScroll = (): void => {
+  // Only set flag if we're past initial load and have completed any initial scroll
+  if (!isInitialPageLoad.value && hasCompletedInitialScroll.value) {
+    hasUserScrolledManually.value = true;
+  }
+};
+
+// --- Modified setFullHeightAndScroll function ---
+const setFullHeightAndScroll = async (
+  reason: "initial-load" | "first-message" | "returning" = "returning",
+): Promise<void> => {
+  if (!isClient.value || !chatWindowRef.value) return;
+
+  const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  chatHeight.value = isMobile.value ? viewportHeight - 20 : viewportHeight;
+  localStorage.setItem("chatHeight", chatHeight.value.toString());
+
+  // Determine if we should scroll based on the reason
+  const shouldScroll =
+    reason === "initial-load" || // ✅ Loading existing conversation
+    reason === "first-message" || // ✅ First message sent
+    reason === "returning"; // ✅ Returning to page with active chat
+
+  if (shouldScroll) {
+    const scrollAction = () => {
+      if (!chatWindowRef.value) return;
+      const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
+      window.scrollTo({ top: offsetTop, behavior: reason === "initial-load" ? "auto" : "smooth" });
+      if (isMobile.value) setTimeout(scrollToBottom, 150);
+
+      // Mark that we've completed initial scroll
+      if (reason === "initial-load" || reason === "returning") {
+        setTimeout(() => {
+          hasCompletedInitialScroll.value = true;
+          isInitialPageLoad.value = false;
+        }, 200);
+      }
+    };
+
+    if (isMobile.value) {
+      requestAnimationFrame(scrollAction);
+    } else {
+      await nextTick();
+      scrollAction();
+    }
+  } else {
+    // Just mark as completed if we're not scrolling but should be past initial load
+    if (reason === "initial-load" || reason === "returning") {
+      hasCompletedInitialScroll.value = true;
+      isInitialPageLoad.value = false;
+    }
+  }
+};
+
+// --- Expand chat window (first message) ---
 const expandChatWindow = async (): Promise<void> => {
   isCompactMode.value = false;
   hasStartedChat.value = true;
@@ -150,11 +210,18 @@ const expandChatWindow = async (): Promise<void> => {
   chatHeight.value = isMobile.value ? viewportHeight - 20 : viewportHeight;
   localStorage.setItem("chatHeight", chatHeight.value.toString());
 
+  // This is first message expansion - should always scroll
   const scrollAction = () => {
     if (!chatWindowRef.value) return;
     const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
     window.scrollTo({ top: offsetTop, behavior: "smooth" });
     if (isMobile.value) setTimeout(scrollToBottom, 150);
+
+    // Mark initial interactions as complete
+    setTimeout(() => {
+      hasCompletedInitialScroll.value = true;
+      isInitialPageLoad.value = false;
+    }, 200);
   };
 
   if (isMobile.value) {
@@ -193,29 +260,7 @@ const saveMessagesToStorage = (): void => {
   localStorage.setItem("chatMessages", JSON.stringify(messagesToSave));
 };
 
-// --- Mobile & Resize Handlers ---
-const setFullHeightAndScroll = async (): Promise<void> => {
-  if (!isClient.value || !chatWindowRef.value) return;
-
-  const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-  chatHeight.value = isMobile.value ? viewportHeight - 20 : viewportHeight;
-  localStorage.setItem("chatHeight", chatHeight.value.toString());
-
-  const scrollAction = () => {
-    if (!chatWindowRef.value) return;
-    const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
-    window.scrollTo({ top: offsetTop, behavior: "smooth" });
-    if (isMobile.value) setTimeout(scrollToBottom, 150);
-  };
-
-  if (isMobile.value) {
-    requestAnimationFrame(scrollAction);
-  } else {
-    await nextTick();
-    scrollAction();
-  }
-};
-
+// --- Resize Handlers ---
 const startResize = (e: MouseEvent | TouchEvent): void => {
   if (isCompactMode.value) return; // Don't allow resize in compact mode
 
@@ -260,28 +305,22 @@ const handleKeyDown = (e: KeyboardEvent): void => {
   }
 };
 
+// 🚫 NO auto-scroll on window resize
 const handleWindowResize = (): void => {
   isMobile.value = checkIfMobile();
   if (hasStartedChat.value && !isCompactMode.value) {
+    // Only update height, NO auto-scroll on resize
     chatHeight.value = window.innerHeight;
     localStorage.setItem("chatHeight", chatHeight.value.toString());
-
-    if (isMobile.value) {
-      setTimeout(() => {
-        scrollToBottom();
-        if (chatWindowRef.value) {
-          const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
-          window.scrollTo({ top: offsetTop, behavior: "smooth" });
-        }
-      }, 100);
-    }
   }
   updatePromptScrollButtons();
 };
 
+// 🚫 NO auto-scroll on tab focus/blur
 const handleVisibilityChange = (): void => {
   if (document.hidden || !hasStartedChat.value || !isMobile.value || isCompactMode.value) return;
 
+  // Update height but NO auto-scroll on visibility change
   requestAnimationFrame(() => {
     if (!chatWindowRef.value) return;
     const isLandscape = window.matchMedia("(orientation: landscape)").matches;
@@ -291,13 +330,10 @@ const handleVisibilityChange = (): void => {
 
     chatHeight.value = isLandscape ? viewportHeight - 40 : viewportHeight - 20;
     localStorage.setItem("chatHeight", chatHeight.value.toString());
-
-    const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
-    window.scrollTo({ top: offsetTop, behavior: "smooth" });
-    setTimeout(scrollToBottom, 100);
   });
 };
 
+// 🚫 NO auto-scroll on cross-tab sync
 const handleStorageChange = (event: StorageEvent): void => {
   if (!isClient.value) return;
 
@@ -314,6 +350,7 @@ const handleStorageChange = (event: StorageEvent): void => {
         messages.value = [];
         isCompactMode.value = true;
         hasStartedChat.value = false;
+        hasUserScrolledManually.value = false; // Reset scroll flag
         localStorage.removeItem("chatEnding");
       }
       break;
@@ -324,13 +361,15 @@ const handleStorageChange = (event: StorageEvent): void => {
           if (Array.isArray(newMessages)) {
             messages.value = newMessages;
 
-            // Sync compact mode state based on messages
+            // Sync compact mode state based on messages but NO auto-scroll
             if (newMessages.length > 0) {
               isCompactMode.value = false;
               hasStartedChat.value = true;
+              // NO auto-scroll on cross-tab sync
             } else {
               isCompactMode.value = true;
               hasStartedChat.value = false;
+              hasUserScrolledManually.value = false; // Reset scroll flag
             }
           }
         } catch (error) {
@@ -341,6 +380,7 @@ const handleStorageChange = (event: StorageEvent): void => {
         messages.value = [];
         isCompactMode.value = true;
         hasStartedChat.value = false;
+        hasUserScrolledManually.value = false; // Reset scroll flag
       }
       break;
   }
@@ -487,6 +527,7 @@ const submitFeedback = async (): Promise<void> => {
     messages.value = [];
     isCompactMode.value = true;
     hasStartedChat.value = false;
+    hasUserScrolledManually.value = false; // Reset scroll flag
   } catch (error) {
     console.error("Error ending chat:", error);
     messages.value.push({
@@ -515,6 +556,7 @@ const setSuggestion = (suggestion: string): void => {
 const cleanupEventListeners = (): void => {
   window.removeEventListener("resize", handleWindowResize);
   window.removeEventListener("storage", handleStorageChange);
+  window.removeEventListener("scroll", handleUserScroll);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
   promptBarRef.value?.removeEventListener("scroll", updatePromptScrollButtons);
   if (inputRef.value) inputRef.value.removeEventListener("input", resizeTextarea);
@@ -537,6 +579,11 @@ onMounted(async () => {
   clientSideTheme.value = true;
   isMobile.value = checkIfMobile();
 
+  // Add scroll listener to detect manual scrolling (with delay to avoid initial scroll detection)
+  setTimeout(() => {
+    window.addEventListener("scroll", handleUserScroll, { passive: true });
+  }, 1000);
+
   threadId.value = localStorage.getItem("threadId");
   const storedMessages = localStorage.getItem("chatMessages");
 
@@ -549,13 +596,17 @@ onMounted(async () => {
       if (parsedMessages.length > 0) {
         isCompactMode.value = false;
         hasStartedChat.value = true;
+        // ✅ This is "returning to page" - should scroll
+        setTimeout(() => setFullHeightAndScroll("returning"), 100);
       }
     } catch (error) {
       console.error("Error parsing stored messages:", error);
       messages.value = [];
+      isInitialPageLoad.value = false;
     }
   } else {
     messages.value = [];
+    isInitialPageLoad.value = false;
   }
 
   // Only load from backend if we have threadId but no stored messages
@@ -578,7 +629,8 @@ onMounted(async () => {
           if (hasUserMessages) {
             isCompactMode.value = false;
             hasStartedChat.value = true;
-            setTimeout(() => setFullHeightAndScroll(), 100);
+            // ✅ This is "loading existing conversation" - should scroll
+            setTimeout(() => setFullHeightAndScroll("initial-load"), 100);
           }
         } else {
           // Invalid response data - reset to fresh state
@@ -587,6 +639,7 @@ onMounted(async () => {
           messages.value = [];
           isCompactMode.value = true;
           hasStartedChat.value = false;
+          isInitialPageLoad.value = false;
         }
       } else {
         // API error or thread not found - reset to fresh state
@@ -595,6 +648,7 @@ onMounted(async () => {
         messages.value = [];
         isCompactMode.value = true;
         hasStartedChat.value = false;
+        isInitialPageLoad.value = false;
       }
     } catch (error) {
       console.error("Error fetching thread messages:", error);
@@ -604,6 +658,7 @@ onMounted(async () => {
       messages.value = [];
       isCompactMode.value = true;
       hasStartedChat.value = false;
+      isInitialPageLoad.value = false;
     } finally {
       isInitialLoading.value = false;
     }
@@ -617,18 +672,13 @@ onMounted(async () => {
   window.addEventListener("storage", handleStorageChange);
   document.addEventListener("visibilitychange", handleVisibilityChange);
 
-  // iOS Safari specific
+  // iOS Safari specific - but NO auto-scroll
   if (isMobile.value && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
     window.addEventListener("scroll", () => {
       if (hasStartedChat.value) {
         sessionStorage.setItem("chatScrollY", window.scrollY.toString());
       }
     });
-
-    const storedScrollY = sessionStorage.getItem("chatScrollY");
-    if (storedScrollY && hasStartedChat.value) {
-      setTimeout(() => window.scrollTo(0, parseInt(storedScrollY)), 100);
-    }
   }
 
   if (!isCompactMode.value) scrollToBottom();
