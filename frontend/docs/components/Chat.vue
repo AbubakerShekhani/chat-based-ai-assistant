@@ -321,10 +321,26 @@ const handleStorageChange = (event: StorageEvent): void => {
       if (event.newValue) {
         try {
           const newMessages = JSON.parse(event.newValue);
-          if (Array.isArray(newMessages)) messages.value = newMessages;
+          if (Array.isArray(newMessages)) {
+            messages.value = newMessages;
+
+            // Sync compact mode state based on messages
+            if (newMessages.length > 0) {
+              isCompactMode.value = false;
+              hasStartedChat.value = true;
+            } else {
+              isCompactMode.value = true;
+              hasStartedChat.value = false;
+            }
+          }
         } catch (error) {
           console.error("Error parsing chat messages from storage:", error);
         }
+      } else {
+        // Messages cleared - reset to compact mode
+        messages.value = [];
+        isCompactMode.value = true;
+        hasStartedChat.value = false;
       }
       break;
   }
@@ -564,15 +580,30 @@ onMounted(async () => {
             hasStartedChat.value = true;
             setTimeout(() => setFullHeightAndScroll(), 100);
           }
+        } else {
+          // Invalid response data - reset to fresh state
+          localStorage.removeItem("threadId");
+          threadId.value = null;
+          messages.value = [];
+          isCompactMode.value = true;
+          hasStartedChat.value = false;
         }
       } else {
+        // API error or thread not found - reset to fresh state
         localStorage.removeItem("threadId");
         threadId.value = null;
+        messages.value = [];
+        isCompactMode.value = true;
+        hasStartedChat.value = false;
       }
     } catch (error) {
       console.error("Error fetching thread messages:", error);
+      // Network error - reset to fresh state
       localStorage.removeItem("threadId");
       threadId.value = null;
+      messages.value = [];
+      isCompactMode.value = true;
+      hasStartedChat.value = false;
     } finally {
       isInitialLoading.value = false;
     }
