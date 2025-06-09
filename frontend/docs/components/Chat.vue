@@ -35,7 +35,7 @@ const WITTY_ERROR_MESSAGES = [
   "Looks like Advocado is having a moment... 🤔 Try again soon, or [discover more about Steve](/about)!",
   "Advocado is practicing its avocado meditation 🧘‍♀️. Please try again later, or [explore Steve's background](/about)!",
   "Looks like Advocado is doing some emergency guac maintenance! 🛠️ [Check out Steve's profile](/about) or try again in a bit!",
-] as const;
+] satisfies string[];
 
 const PROMPT_SUGGESTIONS = [
   "Tell me about Steve's background",
