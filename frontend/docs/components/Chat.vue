@@ -234,20 +234,17 @@ const expandChatWindow = async (): Promise<void> => {
 
 // --- Storage Functions ---
 const isWittyMessage = (msg: ChatMessage, index: number): boolean => {
-  // Check if this is a witty error message
-  if (
-    msg.role === "assistant" &&
-    WITTY_ERROR_MESSAGES.some(wittyMsg => msg.content.includes(wittyMsg.split(" ")[0]))
-  ) {
+  // Check if this is a witty error message (exact match)
+  if (msg.role === "assistant" && WITTY_ERROR_MESSAGES.includes(msg.content as string)) {
     return true;
   }
 
-  // Check if this user message is followed by a witty response
+  // Check if this user message is followed by a witty response (exact match)
   if (msg.role === "user" && index < messages.value.length - 1) {
     const nextMessage = messages.value[index + 1];
     return (
       nextMessage.role === "assistant" &&
-      WITTY_ERROR_MESSAGES.some(wittyMsg => nextMessage.content.includes(wittyMsg.split(" ")[0]))
+      WITTY_ERROR_MESSAGES.includes(nextMessage.content as string)
     );
   }
 
@@ -257,6 +254,7 @@ const isWittyMessage = (msg: ChatMessage, index: number): boolean => {
 const saveMessagesToStorage = (): void => {
   if (!isClient.value) return;
   const messagesToSave = messages.value.filter((msg, index) => !isWittyMessage(msg, index));
+
   localStorage.setItem("chatMessages", JSON.stringify(messagesToSave));
 };
 
