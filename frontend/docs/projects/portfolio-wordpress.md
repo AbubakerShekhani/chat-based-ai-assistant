@@ -1,5 +1,5 @@
 ---
-aside: false
+outline: false
 ---
 
 <script setup lang="ts">
