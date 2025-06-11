@@ -5,8 +5,11 @@ import { ViteImageOptimizer } from "vite-plugin-image-optimizer";
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   title: "Stevanus Satria",
-  description: "Stevanus Satria's Personal Website",
+  description:
+    "Stevanus Satria is a Senior Product Manager at Workato with 7+ years of experience in B2B SaaS, frontend development, and product management. Explore his projects, experience, and professional journey.",
+  lang: "en-US",
   head: [
+    // Favicon
     [
       "link",
       {
@@ -25,6 +28,126 @@ export default defineConfig({
         href: "/small-logo-white-circle-bg.png",
       },
     ],
+    [
+      "link",
+      {
+        rel: "apple-touch-icon",
+        sizes: "180x180",
+        href: "/small-logo-white-circle-bg.png",
+      },
+    ],
+    [
+      "link",
+      {
+        rel: "manifest",
+        href: "/site.webmanifest",
+      },
+    ],
+
+    // SEO Meta Tags
+    ["meta", { name: "author", content: "Stevanus Satria" }],
+    ["meta", { name: "robots", content: "index, follow" }],
+    ["meta", { name: "googlebot", content: "index, follow" }],
+    ["meta", { name: "theme-color", content: "#3b82f6" }],
+    ["meta", { name: "msapplication-TileColor", content: "#3b82f6" }],
+
+    // Open Graph / Facebook
+    ["meta", { property: "og:type", content: "website" }],
+    ["meta", { property: "og:site_name", content: "Stevanus Satria" }],
+    ["meta", { property: "og:title", content: "Stevanus Satria" }],
+    [
+      "meta",
+      {
+        property: "og:description",
+        content:
+          "Senior Product Manager at Workato with 7+ years of experience in B2B SaaS, frontend development, and product management.",
+      },
+    ],
+    ["meta", { property: "og:image", content: "https://stevanussatria.com/me.png" }],
+    ["meta", { property: "og:image:width", content: "1200" }],
+    ["meta", { property: "og:image:height", content: "630" }],
+    ["meta", { property: "og:image:alt", content: "Stevanus Satria - Product Manager" }],
+    ["meta", { property: "og:url", content: "https://stevanussatria.com" }],
+    ["meta", { property: "og:locale", content: "en_US" }],
+
+    // Twitter Card
+    ["meta", { name: "twitter:card", content: "summary_large_image" }],
+    ["meta", { name: "twitter:site", content: "@stevanussatria" }],
+    ["meta", { name: "twitter:creator", content: "@stevanussatria" }],
+    ["meta", { name: "twitter:title", content: "Stevanus Satria" }],
+    [
+      "meta",
+      {
+        name: "twitter:description",
+        content:
+          "Senior Product Manager at Workato with 7+ years of experience in B2B SaaS, frontend development, and product management.",
+      },
+    ],
+    ["meta", { name: "twitter:image", content: "https://stevanussatria.com/me.png" }],
+    ["meta", { name: "twitter:image:alt", content: "Stevanus Satria - Product Manager" }],
+
+    // Additional SEO
+    [
+      "meta",
+      {
+        name: "keywords",
+        content:
+          "product manager, software engineer, frontend developer, B2B SaaS, Workato, Shopee, Amadeus, VitePress, Vue.js, TypeScript, Singapore",
+      },
+    ],
+    ["meta", { name: "viewport", content: "width=device-width, initial-scale=1" }],
+    ["meta", { name: "format-detection", content: "telephone=no" }],
+
+    // Canonical URL
+    ["link", { rel: "canonical", href: "https://stevanussatria.com" }],
+
+    // Preconnect to external domains
+    ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
+    ["link", { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "" }],
+    ["link", { rel: "preconnect", href: "https://www.google-analytics.com" }],
+    ["link", { rel: "preconnect", href: "https://www.googletagmanager.com" }],
+
+    // Structured Data
+    [
+      "script",
+      {
+        type: "application/ld+json",
+        innerHTML: JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "Person",
+          name: "Stevanus Satria",
+          jobTitle: "Senior Product Manager",
+          worksFor: {
+            "@type": "Organization",
+            name: "Workato",
+          },
+          description:
+            "Senior Product Manager with 7+ years of experience in B2B SaaS, frontend development, and product management",
+          url: "https://stevanussatria.com",
+          image: "https://stevanussatria.com/me.png",
+          sameAs: [
+            "https://www.linkedin.com/in/stevanussatria",
+            "https://github.com/stevahnes",
+            "https://www.researchgate.net/profile/Stevanus-Satria",
+            "https://www.strava.com/athletes/18347400",
+            "https://soundcloud.com/stevanus-satria",
+          ],
+          knowsAbout: [
+            "Product Management",
+            "B2B SaaS",
+            "Frontend Development",
+            "Vue.js",
+            "TypeScript",
+            "Angular",
+            "Software Engineering",
+          ],
+        }),
+      },
+    ],
+
+    // Google Analytics (if you have it)
+    // ["script", { async: true, src: "https://www.googletagmanager.com/gtag/js?id=GA_MEASUREMENT_ID" }],
+    // ["script", { innerHTML: "window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); gtag('config', 'GA_MEASUREMENT_ID');" }],
   ],
   themeConfig: {
     logo: "/small-logo-no-bg.png",
