@@ -1,3 +1,7 @@
+---
+aside: false
+---
+
 <script setup lang="ts">
 import { defineAsyncComponent } from 'vue'
 import Timeline from './components/Timeline.vue'

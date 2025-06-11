@@ -1,0 +1,26 @@
+{
+  "name": "Stevanus Satria",
+  "short_name": "Stevanus Satria",
+  "description": "Senior Product Manager at Workato with 7+ years of experience in B2B SaaS, frontend development, and product management",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#3b82f6",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/small-logo-white-circle-bg.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/small-logo-white-circle-bg.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity", "education"],
+  "lang": "en-US"
+} 
