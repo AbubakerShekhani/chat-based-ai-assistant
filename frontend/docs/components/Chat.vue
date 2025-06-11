@@ -272,6 +272,11 @@ const handleKeyDown = (e: KeyboardEvent): void => {
 // 🚫 NO auto-scroll on window resize
 const handleWindowResize = (): void => {
   isMobile.value = checkIfMobile();
+  if (hasStartedChat.value && !isCompactMode.value) {
+    // Only update height, NO auto-scroll on resize
+    chatHeight.value = window.innerHeight;
+    localStorage.setItem("chatHeight", chatHeight.value.toString());
+  }
   updatePromptScrollButtons();
 };
 
