@@ -78,7 +78,7 @@ const inputRef = ref<HTMLTextAreaElement | null>(null);
 const chatContainerRef = ref<HTMLDivElement | null>(null);
 const chatWindowRef = ref<HTMLDivElement | null>(null);
 const promptBarRef = ref<HTMLDivElement | null>(null);
-
+const viewportChangeTimeout = ref<number | null>(null);
 const resizeState = ref<ResizeState>({ startY: 0, startHeight: 0 });
 
 // --- Theme & Computed ---
@@ -144,6 +144,18 @@ const updatePromptScrollButtons = (): void => {
   showRightScroll.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
 };
 
+// Enhanced mobile detection with orientation handling
+const updateMobileState = (): void => {
+  const wasMobile = isMobile.value;
+  isMobile.value = checkIfMobile();
+
+  // If mobile state changed, update height
+  if (wasMobile !== isMobile.value && !isCompactMode.value) {
+    chatHeight.value = getMobileHeight();
+    localStorage.setItem("chatHeight", chatHeight.value.toString());
+  }
+};
+
 // --- Track user scroll interactions ---
 const handleUserScroll = (): void => {
   // Only set flag if we're past initial load and have completed any initial scroll
@@ -199,35 +211,67 @@ const setFullHeightAndScroll = async (
   }
 };
 
+// Improved mobile height calculation
+const getMobileHeight = (): number => {
+  // Try multiple approaches for mobile height
+  let height = window.innerHeight;
+
+  // For iOS Safari, use window.innerHeight as it's more reliable
+  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+    height = window.innerHeight;
+  }
+  // For Android, try visualViewport if available
+  else if (window.visualViewport) {
+    height = window.visualViewport.height;
+  }
+
+  // Subtract padding and account for mobile browser chrome
+  return height - (isMobile.value ? 40 : 20);
+};
+
 // --- Expand chat window (first message) ---
 const expandChatWindow = async (): Promise<void> => {
   isCompactMode.value = false;
   hasStartedChat.value = true;
 
+  // Wait for Vue to update the DOM
   await nextTick();
 
-  const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-  chatHeight.value = isMobile.value ? viewportHeight - 20 : viewportHeight;
+  // Set height using improved calculation
+  chatHeight.value = getMobileHeight();
   localStorage.setItem("chatHeight", chatHeight.value.toString());
 
-  // This is first message expansion - should always scroll
-  const scrollAction = () => {
-    if (!chatWindowRef.value) return;
-    const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
-    window.scrollTo({ top: offsetTop, behavior: "smooth" });
-    if (isMobile.value) setTimeout(scrollToBottom, 150);
-
-    // Mark initial interactions as complete
-    setTimeout(() => {
-      hasCompletedInitialScroll.value = true;
-      isInitialPageLoad.value = false;
-    }, 200);
-  };
-
+  // On mobile, use multiple timeouts to ensure proper rendering
   if (isMobile.value) {
-    requestAnimationFrame(scrollAction);
+    // First, wait for the height change to render
+    setTimeout(() => {
+      if (!chatWindowRef.value) return;
+      const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
+
+      // Scroll to the chat window
+      window.scrollTo({
+        top: offsetTop,
+        behavior: "smooth",
+      });
+
+      // Then scroll to bottom after scroll completes
+      setTimeout(() => {
+        scrollToBottom();
+        // Mark initial interactions as complete
+        setTimeout(() => {
+          hasCompletedInitialScroll.value = true;
+          isInitialPageLoad.value = false;
+        }, 300);
+      }, 500); // Longer delay for mobile
+    }, 100); // Initial delay for DOM update
   } else {
+    // Desktop behavior (existing)
     await nextTick();
+    const scrollAction = () => {
+      if (!chatWindowRef.value) return;
+      const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
+      window.scrollTo({ top: offsetTop, behavior: "smooth" });
+    };
     scrollAction();
   }
 };
@@ -293,6 +337,25 @@ const startResize = (e: MouseEvent | TouchEvent): void => {
     document.addEventListener("mousemove", moveHandler);
     document.addEventListener("mouseup", stopHandler);
   }
+};
+
+// Add mobile-specific event handlers
+const handleMobileViewportChange = (): void => {
+  if (!isMobile.value || isCompactMode.value) return;
+
+  // Clear existing timeout
+  if (viewportChangeTimeout.value !== null) {
+    clearTimeout(viewportChangeTimeout.value);
+  }
+
+  // Set new timeout
+  viewportChangeTimeout.value = window.setTimeout(() => {
+    const newHeight = getMobileHeight();
+    if (Math.abs(newHeight - chatHeight.value) > 50) {
+      chatHeight.value = newHeight;
+      localStorage.setItem("chatHeight", chatHeight.value.toString());
+    }
+  }, 150);
 };
 
 // --- Event Handlers ---
@@ -551,6 +614,20 @@ const cleanupEventListeners = (): void => {
   window.removeEventListener("storage", handleStorageChange);
   window.removeEventListener("scroll", handleUserScroll);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
+
+  // Mobile-specific cleanup
+  if (window.visualViewport) {
+    window.visualViewport.removeEventListener("resize", handleMobileViewportChange);
+  }
+  window.removeEventListener("orientationchange", updateMobileState);
+
+  // Clear timeout with proper null check
+  if (viewportChangeTimeout.value !== null) {
+    clearTimeout(viewportChangeTimeout.value);
+    viewportChangeTimeout.value = null;
+  }
+
+  // Existing cleanup
   promptBarRef.value?.removeEventListener("scroll", updatePromptScrollButtons);
   if (inputRef.value) inputRef.value.removeEventListener("input", resizeTextarea);
 };
@@ -600,6 +677,22 @@ onMounted(async () => {
   } else {
     messages.value = [];
     isInitialPageLoad.value = false;
+  }
+
+  // Add mobile-specific event listeners
+  if (isMobile.value) {
+    // Handle visual viewport changes (keyboard show/hide)
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", handleMobileViewportChange);
+    }
+
+    // Handle orientation changes
+    window.addEventListener("orientationchange", () => {
+      setTimeout(updateMobileState, 100);
+    });
+
+    // Handle mobile keyboard events
+    window.addEventListener("resize", handleMobileViewportChange);
   }
 
   // Only load from backend if we have threadId but no stored messages
