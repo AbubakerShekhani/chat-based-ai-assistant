@@ -152,72 +152,38 @@ const handleUserScroll = (): void => {
   }
 };
 
-// --- Modified setFullHeightAndScroll function ---
-const setFullHeightAndScroll = async (
-  reason: "initial-load" | "first-message" | "returning" = "returning",
+// --- UNIFIED METHOD: Set full height and scroll to view ---
+const setFullHeightAndScrollToView = async (
+  reason: "first-message" | "initial-load" | "returning" = "returning",
 ): Promise<void> => {
   if (!isClient.value || !chatWindowRef.value) return;
 
-  const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-  chatHeight.value = isMobile.value ? viewportHeight - 20 : viewportHeight;
-  localStorage.setItem("chatHeight", chatHeight.value.toString());
-
-  // Determine if we should scroll based on the reason
-  const shouldScroll =
-    reason === "initial-load" || // ✅ Loading existing conversation
-    reason === "first-message" || // ✅ First message sent
-    reason === "returning"; // ✅ Returning to page with active chat
-
-  if (shouldScroll) {
-    const scrollAction = () => {
-      if (!chatWindowRef.value) return;
-      const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
-      window.scrollTo({ top: offsetTop, behavior: reason === "initial-load" ? "auto" : "smooth" });
-      if (isMobile.value) setTimeout(scrollToBottom, 150);
-
-      // Mark that we've completed initial scroll
-      if (reason === "initial-load" || reason === "returning") {
-        setTimeout(() => {
-          hasCompletedInitialScroll.value = true;
-          isInitialPageLoad.value = false;
-        }, 200);
-      }
-    };
-
-    if (isMobile.value) {
-      requestAnimationFrame(scrollAction);
-    } else {
-      await nextTick();
-      scrollAction();
-    }
-  } else {
-    // Just mark as completed if we're not scrolling but should be past initial load
-    if (reason === "initial-load" || reason === "returning") {
-      hasCompletedInitialScroll.value = true;
-      isInitialPageLoad.value = false;
-    }
-  }
-};
-
-// --- Expand chat window (first message) ---
-const expandChatWindow = async (): Promise<void> => {
+  // Exit compact mode and mark chat as started
   isCompactMode.value = false;
   hasStartedChat.value = true;
 
   await nextTick();
 
+  // Set chat height to full viewport
   const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
   chatHeight.value = isMobile.value ? viewportHeight - 20 : viewportHeight;
   localStorage.setItem("chatHeight", chatHeight.value.toString());
 
-  // This is first message expansion - should always scroll
+  // Scroll to the chat window
   const scrollAction = () => {
     if (!chatWindowRef.value) return;
     const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
-    window.scrollTo({ top: offsetTop, behavior: "smooth" });
-    if (isMobile.value) setTimeout(scrollToBottom, 150);
+    window.scrollTo({
+      top: offsetTop,
+      behavior: reason === "initial-load" ? "auto" : "smooth",
+    });
 
-    // Mark initial interactions as complete
+    // Additional scroll to bottom for mobile
+    if (isMobile.value) {
+      setTimeout(scrollToBottom, 150);
+    }
+
+    // Mark that we've completed initial scroll
     setTimeout(() => {
       hasCompletedInitialScroll.value = true;
       isInitialPageLoad.value = false;
@@ -306,11 +272,6 @@ const handleKeyDown = (e: KeyboardEvent): void => {
 // 🚫 NO auto-scroll on window resize
 const handleWindowResize = (): void => {
   isMobile.value = checkIfMobile();
-  if (hasStartedChat.value && !isCompactMode.value) {
-    // Only update height, NO auto-scroll on resize
-    chatHeight.value = window.innerHeight;
-    localStorage.setItem("chatHeight", chatHeight.value.toString());
-  }
   updatePromptScrollButtons();
 };
 
@@ -398,8 +359,9 @@ const sendMessage = async (): Promise<void> => {
 
   messages.value.push(userMessage);
 
+  // Use unified method for first message
   if (isFirstMessage) {
-    await expandChatWindow();
+    await setFullHeightAndScrollToView("first-message");
     if (isMobile.value) {
       window.addEventListener(
         "resize",
@@ -590,12 +552,9 @@ onMounted(async () => {
       const parsedMessages = JSON.parse(storedMessages);
       messages.value = parsedMessages;
 
-      // If we have stored messages, we're not in compact mode
+      // If we have stored messages, use unified method to set full height and scroll
       if (parsedMessages.length > 0) {
-        isCompactMode.value = false;
-        hasStartedChat.value = true;
-        // ✅ This is "returning to page" - should scroll
-        setTimeout(() => setFullHeightAndScroll("returning"), 100);
+        setTimeout(() => setFullHeightAndScrollToView("returning"), 100);
       }
     } catch (error) {
       console.error("Error parsing stored messages:", error);
@@ -625,10 +584,8 @@ onMounted(async () => {
 
           const hasUserMessages = messagesData.some((msg: Message) => msg.role === "user");
           if (hasUserMessages) {
-            isCompactMode.value = false;
-            hasStartedChat.value = true;
-            // ✅ This is "loading existing conversation" - should scroll
-            setTimeout(() => setFullHeightAndScroll("initial-load"), 100);
+            // Use unified method for loading existing conversation
+            setTimeout(() => setFullHeightAndScrollToView("initial-load"), 100);
           }
         } else {
           // Invalid response data - reset to fresh state
