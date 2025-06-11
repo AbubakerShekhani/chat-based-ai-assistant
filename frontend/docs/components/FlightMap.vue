@@ -997,7 +997,7 @@ onMounted(async () => {
         clientSideTheme && isDark
           ? '!bg-gray-900/95 !text-gray-100 !border-gray-600'
           : '!bg-white/95 !text-gray-800 !border-gray-300',
-        isMobile && isStatsPanelCollapsed ? 'collapsed' : '',
+        isMobile && isStatsPanelCollapsed ? 'collapsed-mobile' : '',
       ]"
     >
       <!-- Mobile collapse button -->
@@ -1293,10 +1293,16 @@ onMounted(async () => {
     0 10px 10px -5px rgb(0 0 0 / 0.04);
 }
 
-.stats-panel.collapsed {
+.stats-panel.collapsed-mobile {
+  left: 50%;
+  transform: translateX(-50%);
   padding: 0.5rem;
   width: auto;
   min-width: 4rem;
+}
+
+.stats-panel.collapsed-mobile:hover {
+  transform: translateX(-50%) translateY(-2px);
 }
 
 .mobile-collapse-btn {
@@ -1490,10 +1496,11 @@ onMounted(async () => {
     grid-template-columns: repeat(4, 1fr) !important;
   }
 
-  .stats-panel.collapsed {
+  .stats-panel.collapsed-mobile {
+    left: 50%;
     right: auto;
+    transform: translateX(-50%);
     width: auto;
-    left: 1rem;
   }
 }
 
@@ -1504,9 +1511,10 @@ onMounted(async () => {
     right: 0.5rem;
   }
 
-  .stats-panel.collapsed {
+  .stats-panel.collapsed-mobile {
+    left: 50%;
     right: auto;
-    left: 0.5rem;
+    transform: translateX(-50%);
   }
 }
 
