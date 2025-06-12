@@ -1,5 +1,7 @@
 ---
 outline: false
+prev: false
+next: false
 ---
 
 <script setup lang="ts">
