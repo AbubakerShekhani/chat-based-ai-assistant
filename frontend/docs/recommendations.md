@@ -116,7 +116,7 @@ Insightful, Warm, and Fun describes the session I had with kak Stevanus. He is v
 
 ### Yashi Huang
 
-#### Product Manager, Finance professional pivoting to product management/design
+#### Senior Product Manager, Pitchbook
 
 I had a great conversation with Stevanus. He was super knowledgeable on the product management related topics and interviews and he was able to bring his own working experiences to help you from a practical standpoint. He gave great suggestions and provided a structured framework on how to tackle certain problems. I highly recommend everyone to have a chat with him and learn from him.
 
