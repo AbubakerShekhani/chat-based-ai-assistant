@@ -44,9 +44,111 @@ It was a pleasure working alongside Stevanus Satria. He is a dedicated and insig
 
 ### Alyssa De Conceicao
 
-#### Associate, Product Management at Shopee
+#### Associate Product Manager, Shopee
 
 Stevanus has consistently gone the extra mile as a mentor—offering grounded, thoughtful advice and generously sharing his time with actionable tips that have helped me advance my career with greater clarity. His deep product and technical expertise, developed over years across diverse experiences as a product manager and engineer, has been especially impactful, helping me sharpen my ability to prioritize effectively and strategically prepare for pivotal career opportunities. I truly appreciate the opportunity to have learned from Stevanus, whose practical wisdom and dedication have been extremely valuable.
+
+### Rahul M Jacob
+
+#### Product Manager Operations, Uber
+
+I had a great conversation with Stevanus, where he shared valuable insights about the product landscape in Singapore. I truly appreciate his willingness to assist and the valuable guidance he provided.
+
+### Karen Kaycia
+
+#### Merchandiser, PT Mitra Adiperkasa Tbk.
+
+Had a really great session talking about my career with Ko Stevanus. Thank you for the advices, Ko Stevanus! Honestly they’re really insightful and have helped me to better understand myself on which path I should be taking. Thank you for giving me an insight on what a product manager does, too.
+
+### Sharon Siah
+
+#### Student, SMU
+
+Stevanus is a dedicated mentor who has helped me grow both personally and professionally. He encourages me to think strategically and consider the bigger picture. He is patient, supportive and an excellent communicator.
+
+### Jean Ong
+
+#### Programmer, Arup
+
+I had a great chat with Stevanus! He is both knowledgeable and insightful. I learnt a lot from his sharing. He is a great connection to have!
+
+### Tulika Khabia
+
+#### Assistant Product Manager, Zaggle
+
+I had an amazing session with Steve. He comes from rich product experience. He's very detail oriented and very helpful. My session with him was very helpful and I'll definitely be booking another session with him.
+
+### Maxwell Kabona
+
+#### Business Data Analyst, DevelopmentShift Consulting Ltd
+
+Stevanus' insights were extremely helpful and he allowed me to express a lot of what was on my mind comfortably. He went the extra mile in providing me with useful information to guide me on my path.
+
+### Zioedy Wong
+
+#### UX Researcher and Writer, Section
+
+Stevanus was very helpful in his sharing about Product Management and interview preparations.
+
+### Yao Yao
+
+#### Business Associate, Visa
+
+Stevanus offers great perspectives on the varying working culture and scope of a product manager. He gives very practical advice on how to upskill and prepare for a career switch. He is super approachable, open and resourceful. Definitely would recommend anyone who is interested in becoming a PM to talk to him.
+
+### Shahroze Husain
+
+#### Head of Strategy | Product Manager, Apex Husain
+
+Super insightful and helpful. Stevanus as a mentor goes over and above to help you understand the role of a PM and how to navigate the job search. Highly recommend!
+
+### Clement Perdana
+
+#### Digital Product Manager, DBS
+
+Stevanus is very knowledgeable and passionate about his PM role. He gave me the advice to help me start my first PM role. And not only that, but he also clears my doubt about what and how a PM do their day to day job. It's very insightful to talk with Stevanus, who is very knowledgeable about the industry. I highly recommend him to be your mentor too!
+
+### Kevin Govinda
+
+#### Management Trainee, CIMB Niaga
+
+Insightful, Warm, and Fun describes the session I had with kak Stevanus. He is very candid and willing to share his learnings as a PM.
+
+### Yashi Huang
+
+#### Senior Product Manager, Pitchbook
+
+I had a great conversation with Stevanus. He was super knowledgeable on the product management related topics and interviews and he was able to bring his own working experiences to help you from a practical standpoint. He gave great suggestions and provided a structured framework on how to tackle certain problems. I highly recommend everyone to have a chat with him and learn from him.
+
+### Stephanie Gascon
+
+#### Customer Success Operations Manager, Nugit
+
+Stevanus gave helpful suggestions on how to show aptitude when trying for a first-time PM role and shared his experiences with problem-solving and career progression. Do have a chat with him to hear his valuable perspectives.
+
+### Lim Mun Hong
+
+#### Data Analyst, Top Glove
+
+Steve is a nice and experienced person who knows what he is doing. He provided a lot of useful insight to me and I’m super grateful for this opportunity to talk to him.
+
+### Hue Nguyen
+
+#### Business Analyst, Doxa
+
+I am grateful to have an extraordinary 1-hour session with Stevanus. He shared from the bottom of his heart. He gave me actionable and valuable advice on how to prepare to jump into the role of PM. He shared with me great sources to start with as a junior PM. Words can barely express how thankful I am.
+
+### Preston Ong Jin Bin
+
+#### Student, Monash University
+
+Stevanus is kind and generous in sharing his knowledge about Product Management. Learnt a lot about PM as a student from him albeit a short mentorship session!
+
+### Ahmed
+
+#### Senior Product Manager, ShopBack
+
+I had a nice chat with Stevanus. I appreciate his candidness about his onboarding experiences and some of the possible pitfalls I should be aware of when it comes to joining new teams/companies. His career journey would be very useful for others on a similar trajectory to learn from.
 
 ## Shopee
 

@@ -314,27 +314,106 @@ export default defineConfig({
               ],
             },
             {
-              text: "Workato",
-              link: "/recommendations#workato",
-              items: [
-                {
-                  text: "Vishakan Subramanian",
-                  link: "/recommendations#vishakan-subramanian",
-                },
-                { text: "Chisin Ng", link: "/recommendations#chisin-ng" },
-                {
-                  text: "Swathi Asokraj",
-                  link: "/recommendations#swathi-asokraj",
-                },
-              ],
-            },
-            {
               text: "ADPList",
               link: "/recommendations#adplist",
               items: [
                 {
                   text: "Alyssa De Conceicao",
                   link: "/recommendations#alyssa-de-conceicao",
+                },
+                {
+                  text: "Rahul M Jacob",
+                  link: "/recommendations#rahul-m-jacob",
+                },
+                {
+                  text: "Karen Kaycia",
+                  link: "/recommendations#karen-kaycia",
+                },
+                {
+                  text: "Sharon Siah",
+                  link: "/recommendations#sharon-siah",
+                },
+                {
+                  text: "Jean Ong",
+                  link: "/recommendations#jean-ong",
+                },
+                {
+                  text: "Tulika Khabia",
+                  link: "/recommendations#tulika-khabia",
+                },
+                {
+                  text: "Maxwell Kabona",
+                  link: "/recommendations#maxwell-kabona",
+                },
+                {
+                  text: "Zioedy Wong",
+                  link: "/recommendations#zioedy-wong",
+                },
+                {
+                  text: "Yao Yao",
+                  link: "/recommendations#yao-yao",
+                },
+                {
+                  text: "Shahroze Husain",
+                  link: "/recommendations#shahroze-husain",
+                },
+                {
+                  text: "Clement Perdana",
+                  link: "/recommendations#clement-perdana",
+                },
+                {
+                  text: "Kevin Govinda",
+                  link: "/recommendations#kevin-govinda",
+                },
+                {
+                  text: "Yashi Huang",
+                  link: "/recommendations#yashi-huang",
+                },
+                {
+                  text: "Stephanie Gascon",
+                  link: "/recommendations#stephanie-gascon",
+                },
+                {
+                  text: "Lim Mun Hong",
+                  link: "/recommendations#lim-mun-hong",
+                },
+                {
+                  text: "Hue Nguyen",
+                  link: "/recommendations#hue-nguyen",
+                },
+                {
+                  text: "Preston Ong Jin Bin",
+                  link: "/recommendations#preston-ong-jin-bin",
+                },
+                {
+                  text: "Ahmed",
+                  link: "/recommendations#ahmed",
+                },
+              ],
+            },
+            {
+              text: "Shopee",
+              link: "/recommendations#shopee",
+              items: [
+                {
+                  text: "Siyu (Henry) Tang",
+                  link: "/recommendations#siyu-henry-tang",
+                },
+                {
+                  text: "Joanne Tan",
+                  link: "/recommendations#joanne-tan",
+                },
+                {
+                  text: "Xiang Rong Ong",
+                  link: "/recommendations#xiang-rong-ong",
+                },
+                {
+                  text: "Laurinda Wu",
+                  link: "/recommendations#laurinda-wu",
+                },
+                {
+                  text: "Rachel Esther Chan",
+                  link: "/recommendations#rachel-esther-chan",
                 },
               ],
             },
