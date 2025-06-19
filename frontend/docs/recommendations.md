@@ -40,6 +40,14 @@ He is knowledgeable in the SaaS product domain, which allowed me to pick up exte
 
 It was a pleasure working alongside Stevanus Satria. He is a dedicated and insightful professional in the field. Throughout our collaboration, he consistently demonstrated exceptional intellect and clarity of thought. Always approachable and ready to assist with any doubts, he ensured that the team members felt supported and empowered. Steve has a remarkable dedication to customer satisfaction, consistently valuing feedback and going above and beyond to address their needs.
 
+## ADPList
+
+### Alyssa De Conceicao
+
+#### Associate, Product Management at Shopee
+
+Stevanus has consistently gone the extra mile as a mentor—offering grounded, thoughtful advice and generously sharing his time with actionable tips that have helped me advance my career with greater clarity. His deep product and technical expertise, developed over years across diverse experiences as a product manager and engineer, has been especially impactful, helping me sharpen my ability to prioritize effectively and strategically prepare for pivotal career opportunities. I truly appreciate the opportunity to have learned from Stevanus, whose practical wisdom and dedication have been extremely valuable.
+
 ## Shopee
 
 ### Siyu (Henry) Tang
