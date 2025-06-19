@@ -27,7 +27,7 @@ features:
     title: Hey, Google!
     details: Google Home Mini
   - icon: { src: ./xiaomi.svg }
-    title: Mbak
+    title: Eko
     details: Mi Robot Vacuum-Mop 2
   - icon: { src: ./ewelink.png }
     title: Switchy
