@@ -20,6 +20,9 @@ features:
   - icon: { src: ./apple.webp }
     title: Jean
     details: iPhone 13 Pro Max
+  - icon: { src: ./ringconn.png }
+    title: Onyx
+    details: RingConn Gen 2
   - icon: { src: ./google.webp }
     title: Hey, Google!
     details: Google Home Mini

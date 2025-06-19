@@ -314,28 +314,27 @@ export default defineConfig({
               ],
             },
             {
-              text: "Shopee",
-              link: "/recommendations#shopee",
+              text: "Workato",
+              link: "/recommendations#workato",
               items: [
                 {
-                  text: "Siyu (Henry) Tang",
-                  link: "/recommendations#siyu-henry-tang",
+                  text: "Vishakan Subramanian",
+                  link: "/recommendations#vishakan-subramanian",
                 },
+                { text: "Chisin Ng", link: "/recommendations#chisin-ng" },
                 {
-                  text: "Joanne Tan",
-                  link: "/recommendations#joanne-tan",
+                  text: "Swathi Asokraj",
+                  link: "/recommendations#swathi-asokraj",
                 },
+              ],
+            },
+            {
+              text: "ADPList",
+              link: "/recommendations#adplist",
+              items: [
                 {
-                  text: "Xiang Rong Ong",
-                  link: "/recommendations#xiang-rong-ong",
-                },
-                {
-                  text: "Laurinda Wu",
-                  link: "/recommendations#laurinda-wu",
-                },
-                {
-                  text: "Rachel Esther Chan",
-                  link: "/recommendations#rachel-esther-chan",
+                  text: "Alyssa De Conceicao",
+                  link: "/recommendations#alyssa-de-conceicao",
                 },
               ],
             },
