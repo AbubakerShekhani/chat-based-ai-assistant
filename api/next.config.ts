@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   async headers() {
+    const frontendUrl =
+      process.env.NEXT_PUBLIC_ALLOWED_ORIGIN ||
+      "https://www.stevanussatria.com";
     return [
       {
         source: "/chat/:path*",
@@ -9,7 +12,7 @@ const nextConfig: NextConfig = {
           { key: "Access-Control-Allow-Credentials", value: "true" },
           {
             key: "Access-Control-Allow-Origin",
-            value: "https://www.stevanussatria.com",
+            value: frontendUrl,
           },
           {
             key: "Access-Control-Allow-Methods",
@@ -33,7 +36,7 @@ const nextConfig: NextConfig = {
           { key: "Access-Control-Allow-Credentials", value: "true" },
           {
             key: "Access-Control-Allow-Origin",
-            value: "https://www.stevanussatria.com",
+            value: frontendUrl,
           },
           {
             key: "Access-Control-Allow-Methods",
