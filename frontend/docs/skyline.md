@@ -1,5 +1,34 @@
 ---
 layout: home
+title: "Stevanus Satria | Flight History"
+description: "Explore Stevanus Satria's travel history and flight routes around the world, visualized on an interactive map."
+keywords: "Stevanus Satria, flight history, travel map, interactive visualization, flight routes"
+author: "Stevanus Satria"
+head:
+  - - meta
+    - property: og:title
+      content: "Stevanus Satria | Flight History"
+  - - meta
+    - property: og:description
+      content: "Explore Stevanus Satria's travel history and flight routes around the world, visualized on an interactive map."
+  - - meta
+    - property: og:type
+      content: website
+  - - meta
+    - property: og:url
+      content: https://stevanussatria.com/skyline
+  - - meta
+    - name: twitter:title
+      content: "Stevanus Satria | Flight History"
+  - - meta
+    - name: twitter:description
+      content: "Explore Stevanus Satria's travel history and flight routes around the world, visualized on an interactive map."
+  - - meta
+    - name: twitter:card
+      content: summary_large_image
+  - - link
+    - rel: canonical
+      href: https://stevanussatria.com/skyline
 ---
 
 <script setup lang="ts">
@@ -201,6 +230,8 @@ const flightData: FlightRecord[] = [
   ["2025-04-08", "12:40:00", "NRT", "SIN", "NH843", "NH", "789", "Economy Class : S", "22J,22K"],
   ["2025-04-26", "10:10:00", "SIN", "CGK", "QG523", "QG"],
   ["2025-05-04", "17:10:00", "CGK", "SIN", "QG526", "QG"],
+  ["2025-06-26", "07:40:00", "SIN", "CGK", "SQ952", "SQ"],
+  ["2025-06-30", "20:15:00", "CGK", "SIN", "SQ967", "SQ"],
 ].map(createFlight);
 </script>
 

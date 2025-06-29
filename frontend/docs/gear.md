@@ -1,5 +1,34 @@
 ---
 layout: home
+title: "Stevanus Satria | Gear"
+description: "Explore Stevanus Satria's everyday gear and gadgets, from watches and bikes to tech gadgets and smart home devices."
+keywords: "Stevanus Satria, personal gear, gadgets, watches, bikes, tech gadgets, smart home"
+author: "Stevanus Satria"
+head:
+  - - meta
+    - property: og:title
+      content: "Stevanus Satria | Gear"
+  - - meta
+    - property: og:description
+      content: "Explore Stevanus Satria's everyday gear and gadgets, from watches and bikes to tech gadgets and smart home devices."
+  - - meta
+    - property: og:type
+      content: website
+  - - meta
+    - property: og:url
+      content: https://stevanussatria.com/gear
+  - - meta
+    - name: twitter:title
+      content: "Stevanus Satria | Gear"
+  - - meta
+    - name: twitter:description
+      content: "Explore Stevanus Satria's everyday gear and gadgets, from watches and bikes to tech gadgets and smart home devices."
+  - - meta
+    - name: twitter:card
+      content: summary_large_image
+  - - link
+    - rel: canonical
+      href: https://stevanussatria.com/gear
 
 features:
   - icon: { src: ./omega.png }
