@@ -1,5 +1,34 @@
 ---
 outline: false
+title: "Stevanus Satria | Recommendations"
+description: "Professional recommendations and testimonials for Stevanus Satria from colleagues and mentees, highlighting his expertise in product management and software development."
+keywords: "Stevanus Satria, recommendations, testimonials, product management, software development, mentorship"
+author: "Stevanus Satria"
+head:
+  - - meta
+    - property: og:title
+      content: "Stevanus Satria | Recommendations"
+  - - meta
+    - property: og:description
+      content: "Professional recommendations and testimonials for Stevanus Satria from colleagues and mentees, highlighting his expertise in product management and software development."
+  - - meta
+    - property: og:type
+      content: website
+  - - meta
+    - property: og:url
+      content: https://stevanussatria.com/recommendations
+  - - meta
+    - name: twitter:title
+      content: "Stevanus Satria | Recommendations"
+  - - meta
+    - name: twitter:description
+      content: "Professional recommendations and testimonials for Stevanus Satria from colleagues and mentees, highlighting his expertise in product management and software development."
+  - - meta
+    - name: twitter:card
+      content: summary_large_image
+  - - link
+    - rel: canonical
+      href: https://stevanussatria.com/recommendations
 ---
 
 <script setup lang="ts">
