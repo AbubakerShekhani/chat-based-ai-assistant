@@ -121,9 +121,8 @@ const extractResumeContent = (): void => {
 
   const contentClone = contentElement.cloneNode(true) as HTMLElement;
 
-  // Remove the download button to avoid including it in the resume markdown
-  const downloadButtonContainer = contentClone.querySelector('div[style*="text-align: right"]');
-  downloadButtonContainer?.remove();
+  // Remove all button elements (including loading and download buttons)
+  contentClone.querySelectorAll("button").forEach(btn => btn.remove());
 
   // Remove chat components that might be embedded in the page
   const chatComponents = contentClone.querySelectorAll(
