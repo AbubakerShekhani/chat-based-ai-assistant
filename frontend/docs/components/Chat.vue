@@ -30,6 +30,8 @@ const showRightScroll = ref(false);
 const isFirstMessageSent = ref(false); // Track if first message has been sent
 const isMobile = ref(false); // Track if the device is mobile
 
+const API_BASE = "https://advocado-agent.vercel.app";
+
 // --- DOM Refs ---
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const chatContainerRef = ref<HTMLDivElement | null>(null);
@@ -276,7 +278,7 @@ const sendMessage = async (): Promise<void> => {
 
     if (threadId.value) requestBody.threadId = threadId.value;
 
-    const response = await fetch("https://advocado-agent.vercel.app/chat", {
+    const response = await fetch(`${API_BASE}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
@@ -363,7 +365,7 @@ const submitFeedback = async (): Promise<void> => {
   isEndingChat.value = true;
   try {
     if (!threadId.value) return;
-    const response = await fetch("https://advocado-agent.vercel.app/thread/resolve", {
+    const response = await fetch(`${API_BASE}/thread/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -494,7 +496,7 @@ onMounted(async () => {
     if (existingThreadId) {
       // Start loading past messages in the background
       isInitialLoading.value = true;
-      fetch(`https://advocado-agent.vercel.app/thread/listMessages?threadId=${existingThreadId}`)
+      fetch(`${API_BASE}/thread/listMessages?threadId=${existingThreadId}`)
         .then(messagesResponse => messagesResponse.json())
         .then(messagesData => {
           if (messagesData && Array.isArray(messagesData)) {

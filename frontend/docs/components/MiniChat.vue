@@ -47,7 +47,7 @@ const PROMPT_SUGGESTIONS = [
   "How can I contact Steve?",
 ] as const;
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://advocado-agent.vercel.app";
+const API_BASE = "https://advocado-agent.vercel.app";
 
 // --- State ---
 const messages = ref<ChatMessage[]>([]);
