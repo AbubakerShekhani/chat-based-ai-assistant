@@ -47,7 +47,7 @@ const PROMPT_SUGGESTIONS = [
   "How can I contact Steve?",
 ] as const;
 
-const API_BASE = "https://advocado-agent.vercel.app";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://advocado-agent.vercel.app";
 
 // --- State ---
 const messages = ref<ChatMessage[]>([]);
@@ -328,7 +328,8 @@ const sendMessage = async (): Promise<void> => {
   } finally {
     loading.value = false;
     if (inputRef.value) inputRef.value.style.height = "auto";
-    inputRef.value?.focus();
+    await nextTick();
+    if (inputRef.value) inputRef.value.focus();
     await scrollToBottom();
   }
 };

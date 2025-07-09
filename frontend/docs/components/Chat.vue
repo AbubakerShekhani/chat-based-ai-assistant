@@ -4,48 +4,12 @@ import { marked } from "marked";
 import { useData } from "vitepress";
 import { Message, Role } from "langbase";
 
-// --- Enhanced Types ---
+// --- Types ---
 interface ChatMessage {
   role: Role;
   content: string;
   timestamp?: number;
 }
-
-interface ResizeState {
-  startY: number;
-  startHeight: number;
-}
-
-interface ChatRequest {
-  stream: boolean;
-  rawResponse: boolean;
-  messages: { role: string; content: string }[];
-  threadId?: string;
-}
-
-// --- Constants ---
-const WITTY_ERROR_MESSAGES = [
-  "Oh my, looks like something is wrong with Advocado 🥑. You can [read about Steve here](/about) or try again later!",
-  "Oops! Advocado seems to have taken a little nap 😴. While you wait, why not [learn about Steve](/about)? Or try again in a moment!",
-  "Looks like Advocado is having a bad hair day! 🌪️ Try again soon, or [check out Steve's profile](/about)!",
-  "Advocado is feeling a bit under the weather today 🤒. Please try again later, or [read about Steve](/about)!",
-  "Advocado is currently doing some avocado yoga to recover 🧘‍♂️. [Browse Steve's info](/about) or try again in a bit!",
-  "Looks like Advocado spilled its guacamole! 🥑💦 While we clean up, [learn about Steve](/about) or try again later!",
-  "Advocado is currently on a quick coffee break ☕. [Read Steve's story](/about) or try again in a moment!",
-  "Looks like Advocado is having a moment... 🤔 Try again soon, or [discover more about Steve](/about)!",
-  "Advocado is practicing its avocado meditation 🧘‍♀️. Please try again later, or [explore Steve's background](/about)!",
-  "Looks like Advocado is doing some emergency guac maintenance! 🛠️ [Check out Steve's profile](/about) or try again in a bit!",
-] satisfies string[];
-
-const PROMPT_SUGGESTIONS = [
-  "Tell me about Steve's background",
-  "What are Steve's top skills?",
-  "Summarize Steve's work experience",
-  "Show me Steve's recent projects",
-  "How can I contact Steve?",
-] as const;
-
-const API_BASE = "https://advocado-agent.vercel.app";
 
 // --- State ---
 const userInput = ref("");
@@ -60,30 +24,46 @@ const isEndingChat = ref(false);
 const showFeedbackModal = ref(false);
 const feedback = ref<"good" | "bad" | null>(null);
 const threadId = ref<string | null>(null);
+const promptBarRef = ref<HTMLDivElement | null>(null);
 const showLeftScroll = ref(false);
 const showRightScroll = ref(false);
-const isMobile = ref(false);
-
-// --- New state for compact mode ---
-const isCompactMode = ref(true); // Start in compact mode
-const hasStartedChat = ref(false); // Track if user has started chatting
-
-// --- Scroll behavior state ---
-const hasUserScrolledManually = ref(false);
-const isInitialPageLoad = ref(true);
-const hasCompletedInitialScroll = ref(false);
+const isFirstMessageSent = ref(false); // Track if first message has been sent
+const isMobile = ref(false); // Track if the device is mobile
 
 // --- DOM Refs ---
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const chatContainerRef = ref<HTMLDivElement | null>(null);
 const chatWindowRef = ref<HTMLDivElement | null>(null);
-const promptBarRef = ref<HTMLDivElement | null>(null);
-const viewportChangeTimeout = ref<number | null>(null);
-const resizeState = ref<ResizeState>({ startY: 0, startHeight: 0 });
 
-// --- Theme & Computed ---
+// --- Message Input Handling ---
+const handleKeyDown = (e: KeyboardEvent) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    if (userInput.value.trim()) {
+      sendMessage();
+    }
+  }
+};
+
+// Auto-resize textarea as content grows
+const resizeTextarea = () => {
+  if (!inputRef.value) return;
+
+  // Reset height to auto first to get the correct scrollHeight
+  inputRef.value.style.height = "auto";
+
+  // Set new height based on scrollHeight (with a max height)
+  const newHeight = Math.min(inputRef.value.scrollHeight, 200);
+  inputRef.value.style.height = `${newHeight}px`;
+};
+
+// Watch for input changes to auto-resize
+watch(userInput, () => {
+  nextTick(resizeTextarea);
+});
+
+// --- Theme ---
 const { isDark } = useData();
-
 const cssVars = computed(() => ({
   "--scrollbar-thumb": clientSideTheme.value && isDark.value ? "#4a5568" : "#cbd5e0",
   "--scrollbar-thumb-hover": clientSideTheme.value && isDark.value ? "#2d3748" : "#a0aec0",
@@ -94,32 +74,27 @@ const cssVars = computed(() => ({
   "--blockquote-border-color": clientSideTheme.value && isDark.value ? "#4a5568" : "#cbd5e0",
 }));
 
+// --- Computed ---
 const hasOngoingThread = computed(() => !!threadId.value);
 
 // --- Utility Functions ---
-const getRandomWittyMessage = (): string =>
-  WITTY_ERROR_MESSAGES[Math.floor(Math.random() * WITTY_ERROR_MESSAGES.length)];
-
 const formatTime = (timestamp: number): string =>
-  new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  new Date(timestamp).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
 const parseMarkdown = (content: string): string | Promise<string> => marked.parse(content);
-
-const checkIfMobile = (): boolean => {
-  if (typeof window === "undefined") return false;
-  return (
-    window.innerWidth < 768 ||
-    window.matchMedia("(pointer: coarse)").matches ||
-    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-  );
-};
 
 const scrollToBottom = async (): Promise<void> => {
   await nextTick();
   if (!chatContainerRef.value) return;
 
+  // Use requestAnimationFrame for smoother scrolling
   requestAnimationFrame(() => {
     if (!chatContainerRef.value) return;
+
+    // Check if we're already at the bottom to avoid unnecessary scrolling
     const isAtBottom =
       chatContainerRef.value.scrollHeight - chatContainerRef.value.scrollTop <=
       chatContainerRef.value.clientHeight + 50;
@@ -130,11 +105,56 @@ const scrollToBottom = async (): Promise<void> => {
   });
 };
 
-const resizeTextarea = (): void => {
-  if (!inputRef.value) return;
-  inputRef.value.style.height = "auto";
-  const newHeight = Math.min(inputRef.value.scrollHeight, 200);
-  inputRef.value.style.height = `${newHeight}px`;
+// Check if device is mobile
+const checkIfMobile = (): boolean => {
+  if (typeof window === "undefined") return false;
+  // Use both screen width and user agent for better detection
+  return (
+    window.innerWidth < 768 ||
+    window.matchMedia("(pointer: coarse)").matches ||
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+  );
+};
+
+// Set the chat window to full height and scroll to it
+const setFullHeightAndScroll = async (): Promise<void> => {
+  if (!isClient.value || !chatWindowRef.value) return;
+
+  // Calculate viewport height considering virtual keyboards on mobile
+  const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+
+  // Set chat height to viewport height with a small buffer for mobile
+  chatHeight.value = isMobile.value ? viewportHeight - 20 : viewportHeight;
+
+  // Save height to localStorage
+  localStorage.setItem("chatHeight", chatHeight.value.toString());
+
+  // For mobile devices, handle differently
+  if (isMobile.value) {
+    // Use requestAnimationFrame for smoother rendering
+    requestAnimationFrame(() => {
+      if (!chatWindowRef.value) return;
+      const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
+
+      window.scrollTo({
+        top: offsetTop,
+        behavior: "smooth",
+      });
+
+      // Additional scroll to bottom with a slight delay to ensure rendering
+      setTimeout(scrollToBottom, 150);
+    });
+  } else {
+    // Desktop behavior
+    await nextTick();
+    if (!chatWindowRef.value) return;
+    const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
+
+    window.scrollTo({
+      top: offsetTop,
+      behavior: "smooth",
+    });
+  }
 };
 
 const updatePromptScrollButtons = (): void => {
@@ -144,340 +164,111 @@ const updatePromptScrollButtons = (): void => {
   showRightScroll.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
 };
 
-// Enhanced mobile detection with orientation handling
-const updateMobileState = (): void => {
-  const wasMobile = isMobile.value;
-  isMobile.value = checkIfMobile();
+// --- Chat Window Resize ---
+interface ResizeState {
+  startY: number;
+  startHeight: number;
+}
 
-  // If mobile state changed, update height
-  if (wasMobile !== isMobile.value && !isCompactMode.value) {
-    chatHeight.value = getMobileHeight();
-    localStorage.setItem("chatHeight", chatHeight.value.toString());
-  }
-};
+const resizeState = ref<ResizeState>({
+  startY: 0,
+  startHeight: 0,
+});
 
-// --- Track user scroll interactions ---
-const handleUserScroll = (): void => {
-  // Only set flag if we're past initial load and have completed any initial scroll
-  if (!isInitialPageLoad.value && hasCompletedInitialScroll.value) {
-    hasUserScrolledManually.value = true;
-  }
-};
-
-// --- Modified setFullHeightAndScroll function ---
-const setFullHeightAndScroll = async (
-  reason: "initial-load" | "first-message" | "returning" = "returning",
-): Promise<void> => {
-  if (!isClient.value || !chatWindowRef.value) return;
-
-  const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-  chatHeight.value = isMobile.value ? viewportHeight - 20 : viewportHeight;
-  localStorage.setItem("chatHeight", chatHeight.value.toString());
-
-  // Determine if we should scroll based on the reason
-  const shouldScroll =
-    reason === "initial-load" || // ✅ Loading existing conversation
-    reason === "first-message" || // ✅ First message sent
-    reason === "returning"; // ✅ Returning to page with active chat
-
-  if (shouldScroll) {
-    const scrollAction = () => {
-      if (!chatWindowRef.value) return;
-      const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
-      window.scrollTo({ top: offsetTop, behavior: reason === "initial-load" ? "auto" : "smooth" });
-      if (isMobile.value) setTimeout(scrollToBottom, 150);
-
-      // Mark that we've completed initial scroll
-      if (reason === "initial-load" || reason === "returning") {
-        setTimeout(() => {
-          hasCompletedInitialScroll.value = true;
-          isInitialPageLoad.value = false;
-        }, 200);
-      }
-    };
-
-    if (isMobile.value) {
-      requestAnimationFrame(scrollAction);
-    } else {
-      await nextTick();
-      scrollAction();
-    }
-  } else {
-    // Just mark as completed if we're not scrolling but should be past initial load
-    if (reason === "initial-load" || reason === "returning") {
-      hasCompletedInitialScroll.value = true;
-      isInitialPageLoad.value = false;
-    }
-  }
-};
-
-// Improved mobile height calculation
-const getMobileHeight = (): number => {
-  // Try multiple approaches for mobile height
-  let height = window.innerHeight;
-
-  // For iOS Safari, use window.innerHeight as it's more reliable
-  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-    height = window.innerHeight;
-  }
-  // For Android, try visualViewport if available
-  else if (window.visualViewport) {
-    height = window.visualViewport.height;
-  }
-
-  // Subtract padding and account for mobile browser chrome
-  return height - (isMobile.value ? 40 : 20);
-};
-
-// --- Expand chat window (first message) ---
-const expandChatWindow = async (): Promise<void> => {
-  isCompactMode.value = false;
-  hasStartedChat.value = true;
-
-  // Wait for Vue to update the DOM
-  await nextTick();
-
-  // Set height using improved calculation
-  chatHeight.value = getMobileHeight();
-  localStorage.setItem("chatHeight", chatHeight.value.toString());
-
-  // On mobile, use multiple timeouts to ensure proper rendering
-  if (isMobile.value) {
-    // First, wait for the height change to render
-    setTimeout(() => {
-      if (!chatWindowRef.value) return;
-      const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
-
-      // Scroll to the chat window
-      window.scrollTo({
-        top: offsetTop,
-        behavior: "smooth",
-      });
-
-      // Then scroll to bottom after scroll completes
-      setTimeout(() => {
-        scrollToBottom();
-        // Mark initial interactions as complete
-        setTimeout(() => {
-          hasCompletedInitialScroll.value = true;
-          isInitialPageLoad.value = false;
-        }, 300);
-      }, 500); // Longer delay for mobile
-    }, 100); // Initial delay for DOM update
-  } else {
-    // Desktop behavior (existing)
-    await nextTick();
-    const scrollAction = () => {
-      if (!chatWindowRef.value) return;
-      const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
-      window.scrollTo({ top: offsetTop, behavior: "smooth" });
-    };
-    scrollAction();
-  }
-};
-
-// --- Storage Functions ---
-const isWittyMessage = (msg: ChatMessage, index: number): boolean => {
-  // Check if this is a witty error message (exact match)
-  if (msg.role === "assistant" && WITTY_ERROR_MESSAGES.includes(msg.content as string)) {
-    return true;
-  }
-
-  // Check if this user message is followed by a witty response (exact match)
-  if (msg.role === "user" && index < messages.value.length - 1) {
-    const nextMessage = messages.value[index + 1];
-    return (
-      nextMessage.role === "assistant" &&
-      WITTY_ERROR_MESSAGES.includes(nextMessage.content as string)
-    );
-  }
-
-  return false;
-};
-
-const saveMessagesToStorage = (): void => {
-  if (!isClient.value) return;
-  const messagesToSave = messages.value.filter((msg, index) => !isWittyMessage(msg, index));
-
-  localStorage.setItem("chatMessages", JSON.stringify(messagesToSave));
-};
-
-// --- Resize Handlers ---
 const startResize = (e: MouseEvent | TouchEvent): void => {
-  if (isCompactMode.value) return; // Don't allow resize in compact mode
-
   e.preventDefault();
   isDragging.value = true;
   const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
-  resizeState.value = { startY: clientY, startHeight: chatHeight.value };
-
-  const moveHandler = (e: Event) => {
-    if (!isDragging.value) return;
-    const currentY =
-      "touches" in (e as TouchEvent)
-        ? (e as TouchEvent).touches[0].clientY
-        : (e as MouseEvent).clientY;
-    const deltaY = currentY - resizeState.value.startY;
-    chatHeight.value = Math.max(200, resizeState.value.startHeight + deltaY);
-  };
-
-  const stopHandler = () => {
-    isDragging.value = false;
-    document.removeEventListener("mousemove", moveHandler);
-    document.removeEventListener("mouseup", stopHandler);
-    document.removeEventListener("touchmove", moveHandler);
-    document.removeEventListener("touchend", stopHandler);
-    localStorage.setItem("chatHeight", chatHeight.value.toString());
+  resizeState.value = {
+    startY: clientY,
+    startHeight: chatHeight.value,
   };
 
   if ("touches" in e) {
-    document.addEventListener("touchmove", moveHandler, { passive: false });
-    document.addEventListener("touchend", stopHandler);
+    document.addEventListener("touchmove", handleTouchResize, {
+      passive: false,
+    });
+    document.addEventListener("touchend", stopResize);
   } else {
-    document.addEventListener("mousemove", moveHandler);
-    document.addEventListener("mouseup", stopHandler);
+    document.addEventListener("mousemove", handleMouseResize);
+    document.addEventListener("mouseup", stopResize);
   }
 };
 
-// Add mobile-specific event handlers
-const handleMobileViewportChange = (): void => {
-  if (!isMobile.value || isCompactMode.value) return;
-
-  // Clear existing timeout
-  if (viewportChangeTimeout.value !== null) {
-    clearTimeout(viewportChangeTimeout.value);
-  }
-
-  // Set new timeout
-  viewportChangeTimeout.value = window.setTimeout(() => {
-    const newHeight = getMobileHeight();
-    if (Math.abs(newHeight - chatHeight.value) > 50) {
-      chatHeight.value = newHeight;
-      localStorage.setItem("chatHeight", chatHeight.value.toString());
-    }
-  }, 150);
+const handleMouseResize = (e: MouseEvent): void => {
+  if (!isDragging.value) return;
+  const deltaY = e.clientY - resizeState.value.startY;
+  chatHeight.value = Math.max(200, resizeState.value.startHeight + deltaY);
 };
 
-// --- Event Handlers ---
-const handleKeyDown = (e: KeyboardEvent): void => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    if (userInput.value.trim()) sendMessage();
-  }
+const handleTouchResize = (e: TouchEvent): void => {
+  if (!isDragging.value) return;
+  e.preventDefault();
+  const deltaY = e.touches[0].clientY - resizeState.value.startY;
+  chatHeight.value = Math.max(200, resizeState.value.startHeight + deltaY);
 };
 
-// 🚫 NO auto-scroll on window resize
-const handleWindowResize = (): void => {
-  isMobile.value = checkIfMobile();
-  updatePromptScrollButtons();
-};
-
-// 🚫 NO auto-scroll on tab focus/blur
-const handleVisibilityChange = (): void => {
-  if (document.hidden || !hasStartedChat.value || !isMobile.value || isCompactMode.value) return;
-
-  // Update height but NO auto-scroll on visibility change
-  requestAnimationFrame(() => {
-    if (!chatWindowRef.value) return;
-    const isLandscape = window.matchMedia("(orientation: landscape)").matches;
-    const viewportHeight = window.visualViewport
-      ? window.visualViewport.height
-      : window.innerHeight;
-
-    chatHeight.value = isLandscape ? viewportHeight - 40 : viewportHeight - 20;
+const stopResize = (): void => {
+  isDragging.value = false;
+  document.removeEventListener("mousemove", handleMouseResize);
+  document.removeEventListener("mouseup", stopResize);
+  document.removeEventListener("touchmove", handleTouchResize);
+  document.removeEventListener("touchend", stopResize);
+  if (typeof localStorage !== "undefined") {
     localStorage.setItem("chatHeight", chatHeight.value.toString());
-  });
-};
-
-// 🚫 NO auto-scroll on cross-tab sync
-const handleStorageChange = (event: StorageEvent): void => {
-  if (!isClient.value) return;
-
-  switch (event.key) {
-    case "chatEnding":
-      if (event.newValue === "true" && showFeedbackModal.value) {
-        showFeedbackModal.value = false;
-        feedback.value = null;
-      }
-      break;
-    case "threadId":
-      threadId.value = event.newValue;
-      if (!event.newValue) {
-        messages.value = [];
-        isCompactMode.value = true;
-        hasStartedChat.value = false;
-        hasUserScrolledManually.value = false; // Reset scroll flag
-        localStorage.removeItem("chatEnding");
-      }
-      break;
-    case "chatMessages":
-      if (event.newValue) {
-        try {
-          const newMessages = JSON.parse(event.newValue);
-          if (Array.isArray(newMessages)) {
-            messages.value = newMessages;
-
-            // Sync compact mode state based on messages but NO auto-scroll
-            if (newMessages.length > 0) {
-              isCompactMode.value = false;
-              hasStartedChat.value = true;
-              // NO auto-scroll on cross-tab sync
-            } else {
-              isCompactMode.value = true;
-              hasStartedChat.value = false;
-              hasUserScrolledManually.value = false; // Reset scroll flag
-            }
-          }
-        } catch (error) {
-          console.error("Error parsing chat messages from storage:", error);
-        }
-      } else {
-        // Messages cleared - reset to compact mode
-        messages.value = [];
-        isCompactMode.value = true;
-        hasStartedChat.value = false;
-        hasUserScrolledManually.value = false; // Reset scroll flag
-      }
-      break;
   }
 };
 
-// --- API Functions ---
+// --- Message Handling ---
 const sendMessage = async (): Promise<void> => {
   if (!userInput.value.trim()) return;
 
-  const isFirstMessage = messages.value.length === 0;
+  // Check if this is the first user message being sent
+  const isFirstMessage =
+    messages.value.length <= 1 &&
+    messages.value[0]?.role === "assistant" &&
+    messages.value[0]?.content.includes("Hi! What would you like to learn about Steve today?");
 
-  const userMessage: ChatMessage = {
+  messages.value.push({
     role: "user",
     content: userInput.value,
     timestamp: Date.now(),
-  };
+  });
 
-  messages.value.push(userMessage);
+  // Within the sendMessage function, replace the first message handling with:
+  // If this is the first actual message from the user, expand to full screen
+  if (isFirstMessage && !isFirstMessageSent.value) {
+    isFirstMessageSent.value = true;
 
-  if (isFirstMessage) {
-    await expandChatWindow();
-    if (isMobile.value) {
-      window.addEventListener(
-        "resize",
-        function onResize() {
-          scrollToBottom();
-          window.removeEventListener("resize", onResize);
-        },
-        { once: true },
-      );
-    }
+    // Use setTimeout to ensure DOM is ready
+    setTimeout(async () => {
+      await setFullHeightAndScroll();
+
+      // For mobile, add another scroll check after keyboard appears/disappears
+      if (isMobile.value) {
+        window.addEventListener(
+          "resize",
+          function onResize() {
+            scrollToBottom();
+            // Remove this event listener after first firing
+            window.removeEventListener("resize", onResize);
+          },
+          { once: true },
+        );
+      }
+    }, 50);
   }
-
-  if (isClient.value) localStorage.setItem("hadChatInteraction", "true");
 
   let currentAssistantContent = "";
   let assistantMessageAdded = false;
   loading.value = true;
-
   try {
-    const requestBody: ChatRequest = {
+    const requestBody: {
+      stream: boolean;
+      rawResponse: boolean;
+      messages: { role: string; content: string }[];
+      threadId?: string;
+    } = {
       stream: true,
       rawResponse: true,
       messages: [{ role: "user", content: userInput.value }],
@@ -485,13 +276,12 @@ const sendMessage = async (): Promise<void> => {
 
     if (threadId.value) requestBody.threadId = threadId.value;
 
-    const response = await fetch(`${API_BASE}/chat`, {
+    const response = await fetch("https://advocado-agent.vercel.app/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
     });
 
-    if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
     if (!response.body) throw new Error("No response body");
 
     const threadIdHeader = response.headers.get("lb-thread-id");
@@ -508,7 +298,6 @@ const sendMessage = async (): Promise<void> => {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
@@ -520,7 +309,11 @@ const sendMessage = async (): Promise<void> => {
           const delta = parsed.choices[0]?.delta;
           if (delta?.content) {
             if (!assistantMessageAdded) {
-              messages.value.push({ role: "assistant", content: "", timestamp: Date.now() });
+              messages.value.push({
+                role: "assistant",
+                content: "",
+                timestamp: Date.now(),
+              });
               assistantMessageAdded = true;
             }
             currentAssistantContent += delta.content;
@@ -535,55 +328,57 @@ const sendMessage = async (): Promise<void> => {
     }
   } catch (error) {
     console.error("Error during streaming:", error);
-
     if (!assistantMessageAdded) {
       messages.value.push({
         role: "assistant",
-        content: getRandomWittyMessage(),
+        content: "[Error receiving response]",
         timestamp: Date.now(),
       });
     } else if (currentAssistantContent.trim() === "") {
-      messages.value[messages.value.length - 1].content = getRandomWittyMessage();
+      messages.value[messages.value.length - 1].content = "[Error receiving response]";
     }
-
-    messages.value = [...messages.value];
-    await scrollToBottom();
   } finally {
     loading.value = false;
     userInput.value = "";
-    if (inputRef.value) inputRef.value.style.height = "auto";
-    inputRef.value?.focus();
+    // Reset textarea height
+    if (inputRef.value) {
+      inputRef.value.style.height = "auto";
+    }
+    await nextTick();
+    if (inputRef.value) inputRef.value.focus();
     await scrollToBottom();
   }
 };
 
+// --- End Chat & Feedback Modal ---
 const endChat = (): void => {
-  if (isEndingChat.value || showFeedbackModal.value || !threadId.value) return;
+  if (isEndingChat.value || showFeedbackModal.value) return;
+  if (!threadId.value) return;
   showFeedbackModal.value = true;
   feedback.value = null;
-  if (isClient.value) localStorage.setItem("chatEnding", "true");
 };
 
 const submitFeedback = async (): Promise<void> => {
-  if (!feedback.value || isEndingChat.value || !threadId.value) return;
-
+  if (!feedback.value || isEndingChat.value) return;
   isEndingChat.value = true;
   try {
-    const response = await fetch(`${API_BASE}/thread/resolve`, {
+    if (!threadId.value) return;
+    const response = await fetch("https://advocado-agent.vercel.app/thread/resolve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadId: threadId.value, feedback: feedback.value }),
+      body: JSON.stringify({
+        threadId: threadId.value,
+        feedback: feedback.value,
+      }),
     });
-
     if (!response.ok) throw new Error("Failed to end chat");
-
     localStorage.removeItem("threadId");
-    localStorage.removeItem("chatMessages");
     threadId.value = null;
-    messages.value = [];
-    isCompactMode.value = true;
-    hasStartedChat.value = false;
-    hasUserScrolledManually.value = false; // Reset scroll flag
+    messages.value.push({
+      role: "assistant",
+      content: "Chat session has ended. Ask me anything to start a new conversation!",
+      timestamp: Date.now(),
+    });
   } catch (error) {
     console.error("Error ending chat:", error);
     messages.value.push({
@@ -603,644 +398,547 @@ const closeFeedbackModal = (): void => {
   feedback.value = null;
 };
 
-const setSuggestion = (suggestion: string): void => {
+// --- Prompt Suggestions ---
+const promptSuggestions = [
+  "Tell me about Steve's background",
+  "What are Steve's top skills?",
+  "Summarize Steve's work experience",
+  "Show me Steve's recent projects",
+  "How can I contact Steve?",
+];
+
+function setSuggestion(suggestion: string): void {
   userInput.value = suggestion;
   inputRef.value?.focus();
+}
+
+// --- Window Resize Event Handler ---
+const handleWindowResize = () => {
+  // Check if device is mobile when window is resized
+  isMobile.value = checkIfMobile();
+
+  // If we've sent the first message, update the height to fit the viewport
+  if (isFirstMessageSent.value) {
+    chatHeight.value = window.innerHeight;
+    localStorage.setItem("chatHeight", chatHeight.value.toString());
+
+    // For mobile devices, trigger additional scrolling to ensure visibility
+    if (isMobile.value) {
+      setTimeout(() => {
+        scrollToBottom();
+
+        // If chat window exists, scroll to it
+        if (chatWindowRef.value) {
+          const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
+          window.scrollTo({
+            top: offsetTop,
+            behavior: "smooth",
+          });
+        }
+      }, 100);
+    }
+  }
+  updatePromptScrollButtons();
 };
 
-// --- Lifecycle ---
-const cleanupEventListeners = (): void => {
+// Handle visibility change for mobile browsers
+const handleVisibilityChange = () => {
+  if (!document.hidden && isFirstMessageSent.value && isMobile.value) {
+    // Use requestAnimationFrame for smoother handling
+    requestAnimationFrame(() => {
+      if (!chatWindowRef.value) return;
+
+      // Get current orientation to handle orientation changes
+      const isLandscape = window.matchMedia("(orientation: landscape)").matches;
+      const viewportHeight = window.visualViewport
+        ? window.visualViewport.height
+        : window.innerHeight;
+
+      // Adjust height based on orientation
+      chatHeight.value = isLandscape ? viewportHeight - 40 : viewportHeight - 20;
+      localStorage.setItem("chatHeight", chatHeight.value.toString());
+
+      const offsetTop = chatWindowRef.value.getBoundingClientRect().top + window.pageYOffset;
+      window.scrollTo({
+        top: offsetTop,
+        behavior: "smooth",
+      });
+
+      // Ensure messages are visible
+      setTimeout(scrollToBottom, 100);
+    });
+  }
+};
+
+// --- Initial Load ---
+onMounted(async () => {
+  isClient.value = true;
+  clientSideTheme.value = true;
+
+  // Check if device is mobile
+  isMobile.value = checkIfMobile();
+
+  threadId.value = typeof localStorage !== "undefined" ? localStorage.getItem("threadId") : null;
+  // Render chat UI immediately
+  if (messages.value.length === 0) {
+    messages.value = [
+      {
+        role: "assistant",
+        content: "Hi! What would you like to learn about Steve today?",
+        timestamp: Date.now(),
+      },
+    ];
+  }
+  if (isClient.value) {
+    const existingThreadId = localStorage.getItem("threadId");
+    if (existingThreadId) {
+      // Start loading past messages in the background
+      isInitialLoading.value = true;
+      fetch(`https://advocado-agent.vercel.app/thread/listMessages?threadId=${existingThreadId}`)
+        .then(messagesResponse => messagesResponse.json())
+        .then(messagesData => {
+          if (messagesData && Array.isArray(messagesData)) {
+            // Only prepend if user hasn't sent a new message yet
+            if (
+              messages.value.length === 1 &&
+              messages.value[0].role === "assistant" &&
+              messages.value[0].content.includes(
+                "Hi! What would you like to learn about Steve today?",
+              )
+            ) {
+              messages.value = messagesData.map((msg: Message) => ({
+                role: msg.role,
+                content: msg.content ? msg.content : "",
+                timestamp: Date.now(),
+              }));
+            } else {
+              // Merge past messages with any new ones
+              messages.value = [
+                ...messagesData.map(msg => ({
+                  role: msg.role,
+                  content: msg.content ? msg.content : "",
+                  timestamp: Date.now(),
+                })),
+                ...messages.value,
+              ];
+            }
+
+            // If there are user messages, we've already had a conversation
+            const hasUserMessages = messagesData.some((msg: Message) => msg.role === "user");
+            if (hasUserMessages) {
+              isFirstMessageSent.value = true;
+              // Use setTimeout to ensure the DOM has been updated
+              setTimeout(() => setFullHeightAndScroll(), 100);
+            }
+          }
+        })
+        .catch(error => {
+          console.error("Error fetching thread messages:", error);
+        })
+        .finally(() => {
+          isInitialLoading.value = false;
+        });
+    }
+    if (chatWindowRef.value) {
+      const savedHeight = localStorage.getItem("chatHeight");
+      if (savedHeight) chatHeight.value = parseInt(savedHeight);
+    }
+
+    // Add window resize listener
+    window.addEventListener("resize", handleWindowResize);
+
+    // Add visibility change listener for mobile
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // For iOS Safari, add additional scroll event handling
+    if (isMobile.value && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+      window.addEventListener("scroll", () => {
+        if (isFirstMessageSent.value) {
+          // Store the current scroll position in session storage
+          sessionStorage.setItem("chatScrollY", window.scrollY.toString());
+        }
+      });
+
+      // If we have a stored position, try to restore it
+      const storedScrollY = sessionStorage.getItem("chatScrollY");
+      if (storedScrollY && isFirstMessageSent.value) {
+        setTimeout(() => {
+          window.scrollTo(0, parseInt(storedScrollY));
+        }, 100);
+      }
+    }
+  }
+  scrollToBottom();
+  inputRef.value?.focus();
+  nextTick(() => {
+    updatePromptScrollButtons();
+    promptBarRef.value?.addEventListener("scroll", updatePromptScrollButtons);
+    // Initialize textarea resize
+    if (inputRef.value) {
+      resizeTextarea();
+      inputRef.value.addEventListener("input", resizeTextarea);
+    }
+  });
+});
+
+// --- Clean up event listeners ---
+const cleanupEventListeners = () => {
   window.removeEventListener("resize", handleWindowResize);
-  window.removeEventListener("storage", handleStorageChange);
-  window.removeEventListener("scroll", handleUserScroll);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
-
-  // Mobile-specific cleanup
-  if (window.visualViewport) {
-    window.visualViewport.removeEventListener("resize", handleMobileViewportChange);
-  }
-  window.removeEventListener("orientationchange", updateMobileState);
-
-  // Clear timeout with proper null check
-  if (viewportChangeTimeout.value !== null) {
-    clearTimeout(viewportChangeTimeout.value);
-    viewportChangeTimeout.value = null;
-  }
-
-  // Existing cleanup
   promptBarRef.value?.removeEventListener("scroll", updatePromptScrollButtons);
-  if (inputRef.value) inputRef.value.removeEventListener("input", resizeTextarea);
+  if (inputRef.value) {
+    inputRef.value.removeEventListener("input", resizeTextarea);
+  }
+  if (isMobile.value && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+    window.removeEventListener("scroll", () => {});
+  }
 };
+
+onBeforeUnmount(() => {
+  cleanupEventListeners();
+});
 
 // --- Watchers ---
-watch(userInput, () => nextTick(resizeTextarea));
-watch(messages, saveMessagesToStorage, { deep: true });
 watch(
   messages,
   () => {
-    if (!isCompactMode.value) scrollToBottom();
+    scrollToBottom();
   },
   { deep: true },
 );
 
-// --- Mount ---
-onMounted(async () => {
-  isClient.value = true;
-  clientSideTheme.value = true;
-  isMobile.value = checkIfMobile();
-
-  // Add scroll listener to detect manual scrolling (with delay to avoid initial scroll detection)
-  setTimeout(() => {
-    window.addEventListener("scroll", handleUserScroll, { passive: true });
-  }, 1000);
-
-  threadId.value = localStorage.getItem("threadId");
-  const storedMessages = localStorage.getItem("chatMessages");
-
-  if (storedMessages) {
-    try {
-      const parsedMessages = JSON.parse(storedMessages);
-      messages.value = parsedMessages;
-
-      // If we have stored messages, we're not in compact mode
-      if (parsedMessages.length > 0) {
-        isCompactMode.value = false;
-        hasStartedChat.value = true;
-        // ✅ This is "returning to page" - should scroll
-        setTimeout(() => setFullHeightAndScroll("returning"), 100);
-      }
-    } catch (error) {
-      console.error("Error parsing stored messages:", error);
-      messages.value = [];
-      isInitialPageLoad.value = false;
-    }
-  } else {
-    messages.value = [];
-    isInitialPageLoad.value = false;
-  }
-
-  // Add mobile-specific event listeners
-  if (isMobile.value) {
-    // Handle visual viewport changes (keyboard show/hide)
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", handleMobileViewportChange);
-    }
-
-    // Handle orientation changes
-    window.addEventListener("orientationchange", () => {
-      setTimeout(updateMobileState, 100);
-    });
-
-    // Handle mobile keyboard events
-    window.addEventListener("resize", handleMobileViewportChange);
-  }
-
-  // Only load from backend if we have threadId but no stored messages
-  if (threadId.value && !storedMessages) {
-    isInitialLoading.value = true;
-    try {
-      const response = await fetch(`${API_BASE}/thread/listMessages?threadId=${threadId.value}`);
-
-      if (response.ok) {
-        const messagesData = await response.json();
-        if (messagesData && Array.isArray(messagesData)) {
-          messages.value = messagesData.map((msg: Message) => ({
-            role: msg.role,
-            content: msg.content || "",
-            timestamp: Date.now(),
-          }));
-          saveMessagesToStorage();
-
-          const hasUserMessages = messagesData.some((msg: Message) => msg.role === "user");
-          if (hasUserMessages) {
-            isCompactMode.value = false;
-            hasStartedChat.value = true;
-            // ✅ This is "loading existing conversation" - should scroll
-            setTimeout(() => setFullHeightAndScroll("initial-load"), 100);
-          }
-        } else {
-          // Invalid response data - reset to fresh state
-          localStorage.removeItem("threadId");
-          threadId.value = null;
-          messages.value = [];
-          isCompactMode.value = true;
-          hasStartedChat.value = false;
-          isInitialPageLoad.value = false;
-        }
-      } else {
-        // API error or thread not found - reset to fresh state
-        localStorage.removeItem("threadId");
-        threadId.value = null;
-        messages.value = [];
-        isCompactMode.value = true;
-        hasStartedChat.value = false;
-        isInitialPageLoad.value = false;
-      }
-    } catch (error) {
-      console.error("Error fetching thread messages:", error);
-      // Network error - reset to fresh state
-      localStorage.removeItem("threadId");
-      threadId.value = null;
-      messages.value = [];
-      isCompactMode.value = true;
-      hasStartedChat.value = false;
-      isInitialPageLoad.value = false;
-    } finally {
-      isInitialLoading.value = false;
-    }
-  }
-
-  const savedHeight = localStorage.getItem("chatHeight");
-  if (savedHeight) chatHeight.value = parseInt(savedHeight);
-
-  // Event listeners
-  window.addEventListener("resize", handleWindowResize);
-  window.addEventListener("storage", handleStorageChange);
-  document.addEventListener("visibilitychange", handleVisibilityChange);
-
-  // iOS Safari specific - but NO auto-scroll
-  if (isMobile.value && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-    window.addEventListener("scroll", () => {
-      if (hasStartedChat.value) {
-        sessionStorage.setItem("chatScrollY", window.scrollY.toString());
-      }
-    });
-  }
-
-  if (!isCompactMode.value) scrollToBottom();
-  inputRef.value?.focus();
-
-  await nextTick();
-  updatePromptScrollButtons();
-  promptBarRef.value?.addEventListener("scroll", updatePromptScrollButtons);
-  if (inputRef.value) {
-    resizeTextarea();
-    inputRef.value.addEventListener("input", resizeTextarea);
-  }
-});
-
-onBeforeUnmount(cleanupEventListeners);
+// Remove empty watch on isDark
 </script>
 
 <template>
-  <div v-if="isClient">
-    <!-- Compact Mode - Initial State -->
-    <div
-      v-if="isCompactMode"
-      :class="[
-        '!w-full !max-w-2xl !mx-auto !p-6 !rounded-lg !shadow-lg',
-        clientSideTheme && isDark
-          ? '!border !border-gray-700 !bg-gray-900'
-          : '!border !border-gray-200 !bg-gray-50',
-      ]"
-    >
-      <!-- Welcome Header -->
-      <div class="!text-center !mb-8">
-        <div class="!flex !items-center !justify-center !mb-4">
-          <div class="!h-4 !w-4 !rounded-full !bg-green-500 !mr-3"></div>
-          <h1
-            :class="[
-              '!text-2xl !font-bold',
-              clientSideTheme && isDark ? '!text-gray-100' : '!text-gray-800',
-            ]"
-          >
-            Chat with Advocado 🥑
-          </h1>
-        </div>
-        <p :class="['!text-lg', clientSideTheme && isDark ? '!text-gray-300' : '!text-gray-600']">
-          Hi! What would you like to learn about Steve today?
+  <div
+    v-if="isClient"
+    ref="chatWindowRef"
+    :style="{ height: `${chatHeight}px`, ...cssVars }"
+    :class="[
+      '!relative',
+      '!flex !w-full !flex-col !rounded-lg !p-4 !shadow-lg',
+      clientSideTheme && isDark
+        ? '!border !border-gray-700 !bg-gray-900'
+        : '!border !border-gray-200 !bg-gray-50',
+    ]"
+  >
+    <!-- Overlay for initial loading -->
+    <div v-if="isInitialLoading" class="chat-loading-overlay">
+      <div class="chat-loading-content">
+        <div
+          class="!h-8 !w-8 !border-4 !border-indigo-600 !border-t-transparent !rounded-full !animate-spin"
+        ></div>
+        <p :class="clientSideTheme && isDark ? '!text-gray-200' : '!text-gray-700'">
+          Loading past conversations...
         </p>
       </div>
-
-      <!-- Prompt Suggestions -->
-      <div class="!mb-6 !relative">
-        <div
-          ref="promptBarRef"
-          class="prompt-bar !flex !overflow-x-auto !space-x-3 !pb-2 !scroll-smooth !px-1"
-          @scroll="updatePromptScrollButtons"
-        >
-          <button
-            v-for="suggestion in PROMPT_SUGGESTIONS"
-            :key="suggestion"
-            type="button"
-            :disabled="isInitialLoading"
-            :class="[
-              '!px-4 !py-3 !rounded-lg !text-sm !font-medium !transition-colors !duration-200 !shadow-sm',
-              '!border !whitespace-nowrap !min-w-max',
-              clientSideTheme && isDark
-                ? '!bg-gray-800 !text-gray-100 !border-gray-600 hover:!bg-gray-700'
-                : '!bg-white !text-gray-800 !border-gray-300 hover:!bg-gray-50',
-              isInitialLoading && '!opacity-50 !cursor-not-allowed',
-            ]"
-            @click="setSuggestion(suggestion)"
-          >
-            {{ suggestion }}
-          </button>
-        </div>
-      </div>
-
-      <!-- Input Form -->
-      <form
-        :class="[
-          '!flex !rounded-lg !overflow-hidden !shadow-md !border',
-          clientSideTheme && isDark
-            ? '!bg-gray-800 !border-gray-600'
-            : '!bg-white !border-gray-300',
-        ]"
-        @submit.prevent="sendMessage"
-      >
-        <textarea
-          ref="inputRef"
-          v-model="userInput"
-          placeholder="AMA about Steve! 🎤"
-          :class="[
-            '!flex-1 !border-0 !p-4 !outline-none !focus:ring-0 !focus:ring-offset-0 !resize-none',
-            '!min-h-[56px] !max-h-[200px] !text-base !overflow-y-auto',
-            clientSideTheme && isDark
-              ? '!bg-gray-800 !text-gray-100 !placeholder-gray-400'
-              : '!bg-white !text-gray-800 !placeholder-gray-500',
-            '[&::placeholder]:!text-ellipsis [&::placeholder]:!overflow-hidden [&::placeholder]:!whitespace-nowrap',
-          ]"
-          :disabled="loading || isInitialLoading"
-          rows="1"
-          @keydown="handleKeyDown"
-        ></textarea>
-        <button
-          type="submit"
-          :class="[
-            '!transition-all !duration-200 !ease-in-out !flex !items-center !justify-center !min-w-[80px] !px-6 !shadow-sm',
-            userInput.trim() && !loading && !isInitialLoading
-              ? '!bg-indigo-600 !hover:bg-indigo-700 !text-white'
-              : clientSideTheme && isDark
-                ? '!bg-gray-700 !text-gray-400 !cursor-not-allowed'
-                : '!bg-gray-200 !text-gray-400 !cursor-not-allowed',
-          ]"
-          :disabled="loading || isInitialLoading || !userInput.trim()"
-        >
-          <svg
-            v-if="!loading"
-            xmlns="http://www.w3.org/2000/svg"
-            class="!h-5 !w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-            />
-          </svg>
-          <div
-            v-else
-            class="!h-5 !w-5 !border-2 !border-t-transparent !border-current !rounded-full !animate-spin"
-          ></div>
-        </button>
-      </form>
     </div>
-
-    <!-- Full Chat Mode - After First Message -->
+    <!-- Header -->
     <div
-      v-else
-      ref="chatWindowRef"
-      :style="{ height: `${chatHeight}px`, ...cssVars }"
       :class="[
-        '!relative !flex !w-full !flex-col !rounded-lg !p-4 !shadow-lg',
-        clientSideTheme && isDark
-          ? '!border !border-gray-700 !bg-gray-900'
-          : '!border !border-gray-200 !bg-gray-50',
+        '!mb-4 !pb-3 !flex !items-center !justify-between',
+        clientSideTheme && isDark ? '!border-b !border-gray-700' : '!border-b !border-gray-200',
       ]"
     >
-      <!-- Loading Overlay -->
-      <div v-if="isInitialLoading" class="chat-loading-overlay">
-        <div class="chat-loading-content">
-          <div
-            class="!h-8 !w-8 !border-4 !border-indigo-600 !border-t-transparent !rounded-full !animate-spin"
-          ></div>
-          <p :class="clientSideTheme && isDark ? '!text-gray-200' : '!text-gray-700'">
-            Loading past conversations...
-          </p>
-        </div>
-      </div>
-
-      <!-- Header -->
-      <div
-        :class="[
-          '!mb-4 !pb-3 !flex !items-center !justify-between',
-          clientSideTheme && isDark ? '!border-b !border-gray-700' : '!border-b !border-gray-200',
-        ]"
-      >
-        <div class="!flex !items-center">
-          <div class="!h-3 !w-3 !rounded-full !bg-green-500 !mr-2"></div>
-          <h3
-            :class="
-              clientSideTheme && isDark
-                ? '!text-gray-100 !font-medium'
-                : '!text-gray-800 !font-medium'
-            "
-          >
-            Chat with Advocado 🥑
-          </h3>
-        </div>
-        <button
-          v-if="hasOngoingThread"
-          :disabled="isEndingChat || isInitialLoading"
-          :class="[
-            '!px-3 !py-1 !rounded-lg !text-sm !transition-colors !duration-200 !ease-in-out',
-            '!bg-indigo-600 !hover:bg-indigo-700 !text-white',
-            (isEndingChat || isInitialLoading) && '!opacity-50 !cursor-not-allowed',
-          ]"
-          @click="endChat"
-        >
-          {{ isEndingChat ? "Ending..." : "End Chat" }}
-        </button>
-      </div>
-
-      <!-- Messages Area -->
-      <div ref="chatContainerRef" class="!flex-1 !overflow-auto !space-y-4 !flex !flex-col !px-1">
-        <div
-          v-for="(msg, index) in messages"
-          :key="index"
-          class="!flex !w-full !mb-3"
-          :class="[msg.role === 'user' ? '!justify-end' : '!justify-start']"
-        >
-          <div
-            v-if="msg.content.trim()"
-            :class="[
-              '!rounded-lg !px-4 !py-3 !max-w-[85%] !shadow-md',
-              msg.role === 'user'
-                ? '!bg-indigo-600 !text-white'
-                : clientSideTheme && isDark
-                  ? '!bg-gray-800 !text-gray-100 !border !border-gray-700'
-                  : '!bg-white !text-gray-800 !border !border-gray-200',
-            ]"
-          >
-            <div class="!flex !justify-between !items-center !mb-1">
-              <span
-                :class="[
-                  '!text-xs',
-                  msg.role === 'user'
-                    ? '!text-gray-200'
-                    : clientSideTheme && isDark
-                      ? '!text-gray-400'
-                      : '!text-gray-500',
-                ]"
-              >
-                {{ msg.role === "user" ? "You" : "Advocado" }}
-              </span>
-              <span
-                v-if="msg.timestamp"
-                :class="[
-                  '!text-xs !ml-4',
-                  msg.role === 'user'
-                    ? '!text-gray-200'
-                    : clientSideTheme && isDark
-                      ? '!text-gray-400'
-                      : '!text-gray-500',
-                ]"
-              >
-                {{ formatTime(msg.timestamp) }}
-              </span>
-            </div>
-            <!-- eslint-disable vue/no-v-html -->
-            <div
-              class="!whitespace-pre-wrap markdown-content"
-              v-html="parseMarkdown(msg.content)"
-            ></div>
-            <!-- eslint-enable -->
-          </div>
-        </div>
-
-        <!-- Loading Indicator -->
-        <div v-if="loading" class="!flex !justify-start !w-full">
-          <div
-            :class="[
-              '!rounded-lg !px-4 !py-3 !max-w-[85%] !shadow-md',
-              clientSideTheme && isDark
-                ? '!bg-gray-800 !text-gray-300 !border !border-gray-700'
-                : '!bg-white !text-gray-600 !border !border-gray-200',
-            ]"
-          >
-            <div class="!flex !justify-between !items-center !mb-1">
-              <span
-                :class="
-                  clientSideTheme && isDark ? '!text-xs !text-gray-400' : '!text-xs !text-gray-500'
-                "
-              >
-                Advocado
-              </span>
-              <span
-                :class="
-                  clientSideTheme && isDark
-                    ? '!text-xs !text-gray-400 !ml-4'
-                    : '!text-xs !text-gray-500 !ml-4'
-                "
-              >
-                {{ formatTime(Date.now()) }}
-              </span>
-            </div>
-            <div class="!flex !items-center">
-              <span
-                v-for="(_, i) in 3"
-                :key="i"
-                :class="[
-                  '!inline-block !h-2 !w-2 !rounded-full !animate-pulse',
-                  clientSideTheme && isDark ? '!bg-gray-400' : '!bg-gray-300',
-                ]"
-                :style="{
-                  marginLeft: i > 0 ? '0.25rem' : 0,
-                  marginRight: i < 2 ? '0.25rem' : 0,
-                  animationDelay: `${i * 0.2}s`,
-                }"
-              ></span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Resize Handle -->
-      <div
-        class="!mb-6 !h-2 !w-full !cursor-ns-resize !flex !justify-center !items-center hover:!bg-gray-300 dark:hover:!bg-gray-700 !transition-colors !rounded-b-lg"
-        @mousedown="startResize"
-        @touchstart="startResize"
-      >
-        <div
-          :class="[
-            '!w-12 !h-1 !rounded-full',
-            clientSideTheme && isDark ? '!bg-gray-600' : '!bg-gray-300',
-          ]"
-        ></div>
-      </div>
-
-      <!-- Prompt Suggestions (in expanded mode) -->
-      <div class="!mb-0.5 !relative">
-        <div
-          ref="promptBarRef"
-          class="prompt-bar !flex !overflow-x-auto !space-x-2 !pb-1 !scroll-smooth !px-2"
-          @scroll="updatePromptScrollButtons"
-        >
-          <button
-            v-for="suggestion in PROMPT_SUGGESTIONS"
-            :key="suggestion"
-            type="button"
-            :disabled="isInitialLoading"
-            :class="[
-              '!px-4 !py-2 !rounded-full !text-sm !font-medium !transition-colors !duration-200 !shadow',
-              '!border !whitespace-nowrap',
-              clientSideTheme && isDark
-                ? '!bg-gray-800 !text-gray-100 !border-gray-700 hover:!bg-gray-700'
-                : '!bg-white !text-gray-800 !border-gray-200 hover:!bg-gray-100',
-              isInitialLoading && '!opacity-50 !cursor-not-allowed',
-            ]"
-            @click="setSuggestion(suggestion)"
-          >
-            {{ suggestion }}
-          </button>
-        </div>
-      </div>
-
-      <!-- Input Form -->
-      <form
-        :class="[
-          '!mt-4 !flex !rounded-lg !overflow-hidden !shadow-md',
-          clientSideTheme && isDark
-            ? '!bg-gray-800 !border !border-gray-700'
-            : '!bg-gray-100 !border !border-gray-200',
-        ]"
-        @submit.prevent="sendMessage"
-      >
-        <textarea
-          ref="inputRef"
-          v-model="userInput"
-          placeholder="AMA about Steve! 🎤"
-          :class="[
-            '!flex-1 !border-0 !p-3 !outline-none !focus:ring-0 !focus:ring-offset-0 !resize-none',
-            '!min-h-[42px] !max-h-[200px] !overflow-y-auto',
+      <div class="!flex !items-center">
+        <div class="!h-3 !w-3 !rounded-full !bg-green-500 !mr-2"></div>
+        <h3
+          :class="
             clientSideTheme && isDark
-              ? '!bg-gray-800 !text-gray-100 !placeholder-gray-500'
-              : '!bg-gray-100 !text-gray-800 !placeholder-gray-400',
-            '[&::placeholder]:!text-ellipsis [&::placeholder]:!overflow-hidden [&::placeholder]:!whitespace-nowrap',
-          ]"
-          :disabled="loading || isInitialLoading"
-          rows="1"
-          @keydown="handleKeyDown"
-        ></textarea>
-        <button
-          type="submit"
-          :class="[
-            '!transition-all !duration-200 !ease-in-out !flex !items-center !justify-center !min-w-[60px] !px-4 !shadow-sm',
-            userInput.trim() && !loading && !isInitialLoading
-              ? '!bg-indigo-600 !hover:bg-indigo-700 !text-white'
-              : clientSideTheme && isDark
-                ? '!bg-gray-700 !text-gray-400 !cursor-not-allowed'
-                : '!bg-gray-200 !text-gray-400 !cursor-not-allowed',
-          ]"
-          :disabled="loading || isInitialLoading || !userInput.trim()"
+              ? '!text-gray-100 !font-medium'
+              : '!text-gray-800 !font-medium'
+          "
         >
-          <svg
-            v-if="!loading"
-            xmlns="http://www.w3.org/2000/svg"
-            class="!h-5 !w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-            />
-          </svg>
-          <div
-            v-else
-            class="!h-5 !w-5 !border-2 !border-t-transparent !border-current !rounded-full !animate-spin"
-          ></div>
-        </button>
-      </form>
+          Chat with Advocado 🥑
+        </h3>
+      </div>
+      <button
+        v-if="hasOngoingThread"
+        :disabled="isEndingChat || isInitialLoading"
+        :class="[
+          '!px-3 !py-1 !rounded-lg !text-sm !transition-colors !duration-200 !ease-in-out',
+          '!bg-indigo-600 !hover:bg-indigo-700 !text-white',
+          (isEndingChat || isInitialLoading) && '!opacity-50 !cursor-not-allowed',
+        ]"
+        @click="endChat"
+      >
+        {{ isEndingChat ? "Ending..." : "End Chat" }}
+      </button>
+    </div>
 
-      <!-- Feedback Modal -->
+    <!-- Messages area -->
+    <div ref="chatContainerRef" class="!flex-1 !overflow-auto !space-y-4 !flex !flex-col !px-1">
       <div
-        v-if="showFeedbackModal"
-        class="!absolute !inset-0 !flex !items-center !justify-center !z-50"
+        v-for="(msg, index) in messages"
+        :key="index"
+        class="!flex !w-full !mb-3"
+        :class="[msg.role === 'user' ? '!justify-end' : '!justify-start']"
       >
         <div
+          v-if="msg.content.trim()"
           :class="[
-            '!absolute !inset-0',
-            clientSideTheme && isDark ? '!bg-black !bg-opacity-60' : '!bg-white !bg-opacity-60',
-          ]"
-        ></div>
-        <div
-          :class="[
-            '!relative !rounded-lg !p-6 !w-96 !shadow-xl',
-            clientSideTheme && isDark ? '!bg-gray-800 !text-white' : '!bg-white !text-gray-800',
+            '!rounded-lg !px-4 !py-3 !max-w-[85%] !shadow-md',
+            msg.role === 'user'
+              ? '!bg-indigo-600 !text-white'
+              : clientSideTheme && isDark
+                ? '!bg-gray-800 !text-gray-100 !border !border-gray-700'
+                : '!bg-white !text-gray-800 !border !border-gray-200',
           ]"
         >
-          <h3
-            :class="[
-              '!text-lg !font-medium !mb-4',
-              clientSideTheme && isDark ? '!text-white' : '!text-gray-900',
-            ]"
-          >
-            How was your chat experience?
-          </h3>
-          <div class="!flex !space-x-4 !mb-6">
-            <button
+          <div class="!flex !justify-between !items-center !mb-1">
+            <span
               :class="[
-                '!flex-1 !py-2 !px-4 !rounded-lg !transition-colors !duration-200',
-                feedback === 'good'
-                  ? '!bg-green-500 !text-white'
+                '!text-xs',
+                msg.role === 'user'
+                  ? '!text-gray-200'
                   : clientSideTheme && isDark
-                    ? '!bg-gray-700 !text-gray-300 !hover:bg-gray-600'
-                    : '!bg-gray-100 !text-gray-700 !hover:bg-gray-200',
+                    ? '!text-gray-400'
+                    : '!text-gray-500',
               ]"
-              :disabled="isInitialLoading"
-              @click="feedback = 'good'"
+              >{{ msg.role === "user" ? "You" : "Advocado" }}</span
             >
-              Good 👍
-            </button>
-            <button
+            <span
+              v-if="msg.timestamp"
               :class="[
-                '!flex-1 !py-2 !px-4 !rounded-lg !transition-colors !duration-200',
-                feedback === 'bad'
-                  ? '!bg-red-500 !text-white'
+                '!text-xs !ml-4',
+                msg.role === 'user'
+                  ? '!text-gray-200'
                   : clientSideTheme && isDark
-                    ? '!bg-gray-700 !text-gray-300 !hover:bg-gray-600'
-                    : '!bg-gray-100 !text-gray-700 !hover:bg-gray-200',
+                    ? '!text-gray-400'
+                    : '!text-gray-500',
               ]"
-              :disabled="isInitialLoading"
-              @click="feedback = 'bad'"
+              >{{ formatTime(msg.timestamp) }}</span
             >
-              Bad 👎
-            </button>
           </div>
-          <div class="!flex !justify-end !space-x-3">
-            <button
-              :class="[
-                '!px-4 !py-2 !rounded-lg !transition-colors !duration-200',
+          <!-- eslint-disable vue/no-v-html -->
+          <div
+            class="!whitespace-pre-wrap markdown-content"
+            v-html="parseMarkdown(msg.content)"
+          ></div>
+          <!-- eslint-enable -->
+        </div>
+      </div>
+
+      <!-- Typing indicator -->
+      <div v-if="loading" class="!flex !justify-start !w-full">
+        <div
+          :class="[
+            '!rounded-lg !px-4 !py-3 !max-w-[85%] !shadow-md',
+            clientSideTheme && isDark
+              ? '!bg-gray-800 !text-gray-300 !border !border-gray-700'
+              : '!bg-white !text-gray-600 !border !border-gray-200',
+          ]"
+        >
+          <div class="!flex !justify-between !items-center !mb-1">
+            <span
+              :class="
+                clientSideTheme && isDark ? '!text-xs !text-gray-400' : '!text-xs !text-gray-500'
+              "
+              >Advocado</span
+            >
+            <span
+              :class="
                 clientSideTheme && isDark
+                  ? '!text-xs !text-gray-400 !ml-4'
+                  : '!text-xs !text-gray-500 !ml-4'
+              "
+            >
+              {{ formatTime(Date.now()) }}
+            </span>
+          </div>
+          <div class="!flex !items-center">
+            <span
+              v-for="(_, i) in 3"
+              :key="i"
+              :class="[
+                '!inline-block !h-2 !w-2 !rounded-full !animate-pulse',
+                clientSideTheme && isDark ? '!bg-gray-400' : '!bg-gray-300',
+              ]"
+              :style="{
+                marginLeft: i > 0 ? '0.25rem' : 0,
+                marginRight: i < 2 ? '0.25rem' : 0,
+                animationDelay: `${i * 0.2}s`,
+              }"
+            ></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Resize handle -->
+    <div
+      class="!mb-6 !h-2 !w-full !cursor-ns-resize !flex !justify-center !items-center hover:!bg-gray-300 dark:hover:!bg-gray-700 !transition-colors !rounded-b-lg"
+      @mousedown="startResize"
+      @touchstart="startResize"
+    >
+      <div
+        :class="[
+          '!w-12 !h-1 !rounded-full',
+          clientSideTheme && isDark ? '!bg-gray-600' : '!bg-gray-300',
+        ]"
+      ></div>
+    </div>
+
+    <!-- Prompt Suggestions (responsive scroll bar, no buttons) -->
+    <div class="!mb-0.5 !relative">
+      <div
+        ref="promptBarRef"
+        class="prompt-bar !flex !overflow-x-auto !space-x-2 !pb-1 !scroll-smooth !px-2"
+        @scroll="updatePromptScrollButtons"
+      >
+        <button
+          v-for="(suggestion, idx) in promptSuggestions"
+          :key="idx"
+          type="button"
+          :disabled="isInitialLoading"
+          :class="[
+            '!px-4 !py-2 !rounded-full !text-sm !font-medium !transition-colors !duration-200 !shadow',
+            '!border !whitespace-nowrap',
+            clientSideTheme && isDark
+              ? '!bg-gray-800 !text-gray-100 !border-gray-700 hover:!bg-gray-700'
+              : '!bg-white !text-gray-800 !border-gray-200 hover:!bg-gray-100',
+            isInitialLoading && '!opacity-50 !cursor-not-allowed',
+          ]"
+          @click="setSuggestion(suggestion)"
+        >
+          {{ suggestion }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Input form -->
+    <form
+      :class="[
+        '!mt-4 !flex !rounded-lg !overflow-hidden !shadow-md',
+        clientSideTheme && isDark
+          ? '!bg-gray-800 !border !border-gray-700'
+          : '!bg-gray-100 !border !border-gray-200',
+      ]"
+      @submit.prevent="sendMessage"
+    >
+      <textarea
+        ref="inputRef"
+        v-model="userInput"
+        placeholder="Ask something about Steve..."
+        :class="[
+          '!flex-1 !border-0 !p-3 !outline-none !focus:ring-0 !focus:ring-offset-0 !resize-none',
+          '!min-h-[42px] !max-h-[200px] !overflow-y-auto',
+          clientSideTheme && isDark
+            ? '!bg-gray-800 !text-gray-100 !placeholder-gray-500'
+            : '!bg-gray-100 !text-gray-800 !placeholder-gray-400',
+        ]"
+        :disabled="loading || isInitialLoading"
+        rows="1"
+        @keydown="handleKeyDown"
+      ></textarea>
+      <button
+        type="submit"
+        class="!bg-indigo-600 !hover:bg-indigo-700 !text-white !px-4 !transition-colors !duration-200 !ease-in-out !flex !items-center !justify-center !min-w-[60px]"
+        :disabled="loading || isInitialLoading"
+      >
+        <svg
+          v-if="!loading"
+          xmlns="http://www.w3.org/2000/svg"
+          class="!h-5 !w-5"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+          />
+        </svg>
+        <div
+          v-else
+          class="!h-5 !w-5 !border-2 !border-t-transparent !border-white !rounded-full !animate-spin"
+        ></div>
+      </button>
+    </form>
+
+    <!-- Feedback Modal (inside chat window) -->
+    <div
+      v-if="showFeedbackModal"
+      class="!absolute !inset-0 !flex !items-center !justify-center !z-50"
+    >
+      <div
+        :class="[
+          '!absolute !inset-0',
+          clientSideTheme && isDark ? '!bg-black !bg-opacity-60' : '!bg-white !bg-opacity-60',
+        ]"
+      ></div>
+      <div
+        :class="[
+          '!relative !rounded-lg !p-6 !w-96 !shadow-xl',
+          clientSideTheme && isDark ? '!bg-gray-800 !text-white' : '!bg-white !text-gray-800',
+        ]"
+      >
+        <h3
+          :class="[
+            '!text-lg !font-medium !mb-4',
+            clientSideTheme && isDark ? '!text-white' : '!text-gray-900',
+          ]"
+        >
+          How was your chat experience?
+        </h3>
+        <div class="!flex !space-x-4 !mb-6">
+          <button
+            :class="[
+              '!flex-1 !py-2 !px-4 !rounded-lg !transition-colors !duration-200',
+              feedback === 'good'
+                ? '!bg-green-500 !text-white'
+                : clientSideTheme && isDark
                   ? '!bg-gray-700 !text-gray-300 !hover:bg-gray-600'
                   : '!bg-gray-100 !text-gray-700 !hover:bg-gray-200',
-              ]"
-              :disabled="isInitialLoading"
-              @click="closeFeedbackModal"
-            >
-              Cancel
-            </button>
-            <button
-              :disabled="!feedback || isEndingChat || isInitialLoading"
-              :class="[
-                '!px-4 !py-2 !rounded-lg !transition-colors !duration-200',
-                !feedback || isEndingChat || isInitialLoading
-                  ? '!bg-gray-400 !text-white !cursor-not-allowed'
-                  : '!bg-indigo-600 !text-white !hover:bg-indigo-700',
-              ]"
-              @click="submitFeedback"
-            >
-              {{ isEndingChat ? "Ending..." : "End Chat" }}
-            </button>
-          </div>
+            ]"
+            :disabled="isInitialLoading"
+            @click="feedback = 'good'"
+          >
+            Good 👍
+          </button>
+          <button
+            :class="[
+              '!flex-1 !py-2 !px-4 !rounded-lg !transition-colors !duration-200',
+              feedback === 'bad'
+                ? '!bg-red-500 !text-white'
+                : clientSideTheme && isDark
+                  ? '!bg-gray-700 !text-gray-300 !hover:bg-gray-600'
+                  : '!bg-gray-100 !text-gray-700 !hover:bg-gray-200',
+            ]"
+            :disabled="isInitialLoading"
+            @click="feedback = 'bad'"
+          >
+            Bad 👎
+          </button>
+        </div>
+        <div class="!flex !justify-end !space-x-3">
+          <button
+            :class="[
+              '!px-4 !py-2 !rounded-lg !transition-colors !duration-200',
+              clientSideTheme && isDark
+                ? '!bg-gray-700 !text-gray-300 !hover:bg-gray-600'
+                : '!bg-gray-100 !text-gray-700 !hover:bg-gray-200',
+            ]"
+            :disabled="isInitialLoading"
+            @click="closeFeedbackModal"
+          >
+            Cancel
+          </button>
+          <button
+            :disabled="!feedback || isEndingChat || isInitialLoading"
+            :class="[
+              '!px-4 !py-2 !rounded-lg !transition-colors !duration-200',
+              !feedback || isEndingChat || isInitialLoading
+                ? '!bg-gray-400 !text-white !cursor-not-allowed'
+                : '!bg-indigo-600 !text-white !hover:bg-indigo-700',
+            ]"
+            @click="submitFeedback"
+          >
+            {{ isEndingChat ? "Ending..." : "End Chat" }}
+          </button>
         </div>
       </div>
     </div>
@@ -1263,6 +961,7 @@ onBeforeUnmount(cleanupEventListeners);
 </template>
 
 <style scoped>
+/* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -1280,10 +979,13 @@ onBeforeUnmount(cleanupEventListeners);
   background: var(--scrollbar-track);
 }
 
+/* Markdown styling */
 :deep(.markdown-content) {
   line-height: 1.4 !important;
+  /* slightly tighter for chat */
 }
 
+/* Remove margin/padding from paragraphs, lists, pre/code, blockquotes */
 :deep(.markdown-content p),
 :deep(.markdown-content ul),
 :deep(.markdown-content ol),
@@ -1293,26 +995,33 @@ onBeforeUnmount(cleanupEventListeners);
   padding: 0 !important;
 }
 
+/* Tight spacing between sibling blocks (paragraphs, lists, etc.) */
 :deep(.markdown-content > * + *) {
   margin-top: 0.4em !important;
+  /* em units scale with font size */
 }
 
+/* Paragraphs that follow another paragraph (extra safe for nested structure) */
 :deep(.markdown-content p + p) {
   margin-top: 0.4em !important;
 }
 
+/* Remove default margin/padding from list items and nested paragraphs */
 :deep(.markdown-content li),
 :deep(.markdown-content li p) {
   margin: 0 !important;
   padding: 0 !important;
 }
 
+/* Tighter left margin for lists for less indentation */
 :deep(.markdown-content ul),
 :deep(.markdown-content ol) {
   margin-left: 1rem !important;
+  /* less than default 1.5rem */
   padding: 0 !important;
 }
 
+/* Standard list-style */
 :deep(.markdown-content ul) {
   list-style-type: disc !important;
 }
@@ -1321,6 +1030,7 @@ onBeforeUnmount(cleanupEventListeners);
   list-style-type: decimal !important;
 }
 
+/* Strong/italic */
 :deep(.markdown-content strong) {
   font-weight: bold !important;
 }
@@ -1329,6 +1039,7 @@ onBeforeUnmount(cleanupEventListeners);
   font-style: italic !important;
 }
 
+/* Inline code */
 :deep(.markdown-content code) {
   font-family: monospace !important;
   background-color: var(--code-bg-color) !important;
@@ -1336,6 +1047,7 @@ onBeforeUnmount(cleanupEventListeners);
   border-radius: 0.25rem !important;
 }
 
+/* Code block */
 :deep(.markdown-content pre code) {
   display: block !important;
   padding: 0.75rem !important;
@@ -1343,11 +1055,13 @@ onBeforeUnmount(cleanupEventListeners);
   overflow-x: auto !important;
 }
 
+/* Links */
 :deep(.markdown-content a) {
   color: var(--link-color) !important;
   text-decoration: underline !important;
 }
 
+/* Blockquote */
 :deep(.markdown-content blockquote) {
   border-left: 3px solid var(--blockquote-border-color) !important;
   padding-left: 1rem !important;
@@ -1355,6 +1069,7 @@ onBeforeUnmount(cleanupEventListeners);
   margin: 0 !important;
 }
 
+/* Desktop: slim horizontal scrollbar for prompt bar */
 @media (min-width: 640px) {
   .prompt-bar::-webkit-scrollbar {
     height: 4px !important;
@@ -1375,6 +1090,7 @@ onBeforeUnmount(cleanupEventListeners);
   }
 }
 
+/* Mobile: hide horizontal scrollbar for prompt bar */
 @media (max-width: 639px) {
   .prompt-bar::-webkit-scrollbar {
     display: none !important;
@@ -1387,6 +1103,18 @@ onBeforeUnmount(cleanupEventListeners);
   }
 }
 
+/* Hide scrollbar */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  height: 0 !important;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+/* Overlay for initial loading */
 .chat-loading-overlay {
   position: absolute;
   inset: 0;
