@@ -328,7 +328,8 @@ const sendMessage = async (): Promise<void> => {
   } finally {
     loading.value = false;
     if (inputRef.value) inputRef.value.style.height = "auto";
-    inputRef.value?.focus();
+    await nextTick();
+    if (inputRef.value) inputRef.value.focus();
     await scrollToBottom();
   }
 };
