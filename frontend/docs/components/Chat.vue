@@ -2,7 +2,7 @@
 import { ref, nextTick, onMounted, watch, computed, onBeforeUnmount } from "vue";
 import { marked } from "marked";
 import { useData } from "vitepress";
-import { Message, Role } from "langbase";
+import { Role } from "langbase";
 
 // --- Types ---
 interface ChatMessage {
@@ -29,6 +29,19 @@ const showLeftScroll = ref(false);
 const showRightScroll = ref(false);
 const isFirstMessageSent = ref(false); // Track if first message has been sent
 const isMobile = ref(false); // Track if the device is mobile
+
+const WITTY_MESSAGES = [
+  "Oh my, looks like something is wrong with Advocado 🥑. You can [read about Steve here](/about) or try again later!",
+  "Oops! Advocado seems to have taken a little nap 😴. While you wait, why not [learn about Steve](/about)? Or try again in a moment!",
+  "Looks like Advocado is having a bad hair day! 🌪️ Try again soon, or [check out Steve's profile](/about)!",
+  "Advocado is feeling a bit under the weather today 🤒. Please try again later, or [read about Steve](/about)!",
+  "Advocado is currently doing some avocado yoga to recover 🧘‍♂️. [Browse Steve's info](/about) or try again in a bit!",
+  "Looks like Advocado spilled its guacamole! 🥑💦 While we clean up, [learn about Steve](/about) or try again later!",
+  "Advocado is currently on a quick coffee break ☕. [Read Steve's story](/about) or try again in a moment!",
+  "Looks like Advocado is having a moment... 🤔 Try again soon, or [discover more about Steve](/about)!",
+  "Advocado is practicing its avocado meditation 🧘‍♀️. Please try again later, or [explore Steve's background](/about)!",
+  "Looks like Advocado is doing some emergency guac maintenance! 🛠️ [Check out Steve's profile](/about) or try again in a bit!",
+];
 
 const API_BASE = "https://advocado-agent.vercel.app";
 
@@ -80,6 +93,64 @@ const cssVars = computed(() => ({
 const hasOngoingThread = computed(() => !!threadId.value);
 
 // --- Utility Functions ---
+const isWittyMessage = (msg: ChatMessage, index: number): boolean => {
+  if (msg.role === "assistant" && WITTY_MESSAGES.includes(msg.content as string)) {
+    return true;
+  }
+  if (msg.role === "user" && index < messages.value.length - 1) {
+    const nextMessage = messages.value[index + 1];
+    return (
+      nextMessage.role === "assistant" && WITTY_MESSAGES.includes(nextMessage.content as string)
+    );
+  }
+  return false;
+};
+
+const saveMessagesToStorage = (): void => {
+  if (!isClient.value) return;
+  const messagesToSave = messages.value.filter((msg, index) => !isWittyMessage(msg, index));
+  localStorage.setItem("chatMessages", JSON.stringify(messagesToSave));
+};
+
+const handleStorageChange = (event: StorageEvent): void => {
+  if (!isClient.value) return;
+  switch (event.key) {
+    case "chatMessages": {
+      try {
+        const newMessages = JSON.parse(event.newValue || "[]");
+        if (Array.isArray(newMessages)) {
+          messages.value = newMessages;
+        }
+      } catch (error) {
+        console.error("Error parsing chat messages from storage:", error);
+        messages.value = [];
+      }
+      break;
+    }
+    case "threadId": {
+      threadId.value = event.newValue;
+      if (!event.newValue) {
+        messages.value = [
+          {
+            role: "assistant",
+            content: "Hi! What would you like to learn about Steve today?",
+            timestamp: Date.now(),
+          },
+        ];
+        isFirstMessageSent.value = false;
+      }
+      break;
+    }
+    case "chatEnding": {
+      if (event.newValue === "true" && showFeedbackModal.value) {
+        showFeedbackModal.value = false;
+        feedback.value = null;
+      }
+      break;
+    }
+  }
+};
+
 const formatTime = (timestamp: number): string =>
   new Date(timestamp).toLocaleTimeString([], {
     hour: "2-digit",
@@ -236,6 +307,7 @@ const sendMessage = async (): Promise<void> => {
     content: userInput.value,
     timestamp: Date.now(),
   });
+  saveMessagesToStorage();
 
   // Within the sendMessage function, replace the first message handling with:
   // If this is the first actual message from the user, expand to full screen
@@ -339,6 +411,7 @@ const sendMessage = async (): Promise<void> => {
     } else if (currentAssistantContent.trim() === "") {
       messages.value[messages.value.length - 1].content = "[Error receiving response]";
     }
+    saveMessagesToStorage();
   } finally {
     loading.value = false;
     userInput.value = "";
@@ -349,6 +422,7 @@ const sendMessage = async (): Promise<void> => {
     await nextTick();
     if (inputRef.value) inputRef.value.focus();
     await scrollToBottom();
+    saveMessagesToStorage();
   }
 };
 
@@ -375,12 +449,14 @@ const submitFeedback = async (): Promise<void> => {
     });
     if (!response.ok) throw new Error("Failed to end chat");
     localStorage.removeItem("threadId");
+    localStorage.removeItem("chatMessages");
     threadId.value = null;
     messages.value.push({
       role: "assistant",
       content: "Chat session has ended. Ask me anything to start a new conversation!",
       timestamp: Date.now(),
     });
+    saveMessagesToStorage();
   } catch (error) {
     console.error("Error ending chat:", error);
     messages.value.push({
@@ -388,6 +464,7 @@ const submitFeedback = async (): Promise<void> => {
       content: "Failed to end chat session. Please try again.",
       timestamp: Date.now(),
     });
+    saveMessagesToStorage();
   } finally {
     isEndingChat.value = false;
     showFeedbackModal.value = false;
@@ -481,8 +558,30 @@ onMounted(async () => {
   isMobile.value = checkIfMobile();
 
   threadId.value = typeof localStorage !== "undefined" ? localStorage.getItem("threadId") : null;
-  // Render chat UI immediately
-  if (messages.value.length === 0) {
+
+  // Load messages from localStorage if present
+  const storedMessages =
+    typeof localStorage !== "undefined" ? localStorage.getItem("chatMessages") : null;
+  if (storedMessages) {
+    try {
+      const parsedMessages = JSON.parse(storedMessages);
+      if (Array.isArray(parsedMessages)) {
+        messages.value = parsedMessages;
+        if (parsedMessages.length > 0) {
+          isFirstMessageSent.value = true;
+        }
+      }
+    } catch (error) {
+      console.error("Error parsing stored messages:", error);
+      messages.value = [
+        {
+          role: "assistant",
+          content: "Hi! What would you like to learn about Steve today?",
+          timestamp: Date.now(),
+        },
+      ];
+    }
+  } else {
     messages.value = [
       {
         role: "assistant",
@@ -491,84 +590,9 @@ onMounted(async () => {
       },
     ];
   }
+
   if (isClient.value) {
-    const existingThreadId = localStorage.getItem("threadId");
-    if (existingThreadId) {
-      // Start loading past messages in the background
-      isInitialLoading.value = true;
-      fetch(`${API_BASE}/thread/listMessages?threadId=${existingThreadId}`)
-        .then(messagesResponse => messagesResponse.json())
-        .then(messagesData => {
-          if (messagesData && Array.isArray(messagesData)) {
-            // Only prepend if user hasn't sent a new message yet
-            if (
-              messages.value.length === 1 &&
-              messages.value[0].role === "assistant" &&
-              messages.value[0].content.includes(
-                "Hi! What would you like to learn about Steve today?",
-              )
-            ) {
-              messages.value = messagesData.map((msg: Message) => ({
-                role: msg.role,
-                content: msg.content ? msg.content : "",
-                timestamp: Date.now(),
-              }));
-            } else {
-              // Merge past messages with any new ones
-              messages.value = [
-                ...messagesData.map(msg => ({
-                  role: msg.role,
-                  content: msg.content ? msg.content : "",
-                  timestamp: Date.now(),
-                })),
-                ...messages.value,
-              ];
-            }
-
-            // If there are user messages, we've already had a conversation
-            const hasUserMessages = messagesData.some((msg: Message) => msg.role === "user");
-            if (hasUserMessages) {
-              isFirstMessageSent.value = true;
-              // Use setTimeout to ensure the DOM has been updated
-              setTimeout(() => setFullHeightAndScroll(), 100);
-            }
-          }
-        })
-        .catch(error => {
-          console.error("Error fetching thread messages:", error);
-        })
-        .finally(() => {
-          isInitialLoading.value = false;
-        });
-    }
-    if (chatWindowRef.value) {
-      const savedHeight = localStorage.getItem("chatHeight");
-      if (savedHeight) chatHeight.value = parseInt(savedHeight);
-    }
-
-    // Add window resize listener
-    window.addEventListener("resize", handleWindowResize);
-
-    // Add visibility change listener for mobile
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    // For iOS Safari, add additional scroll event handling
-    if (isMobile.value && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-      window.addEventListener("scroll", () => {
-        if (isFirstMessageSent.value) {
-          // Store the current scroll position in session storage
-          sessionStorage.setItem("chatScrollY", window.scrollY.toString());
-        }
-      });
-
-      // If we have a stored position, try to restore it
-      const storedScrollY = sessionStorage.getItem("chatScrollY");
-      if (storedScrollY && isFirstMessageSent.value) {
-        setTimeout(() => {
-          window.scrollTo(0, parseInt(storedScrollY));
-        }, 100);
-      }
-    }
+    window.addEventListener("storage", handleStorageChange);
   }
   scrollToBottom();
   inputRef.value?.focus();
@@ -598,6 +622,7 @@ const cleanupEventListeners = () => {
 
 onBeforeUnmount(() => {
   cleanupEventListeners();
+  window.removeEventListener("storage", handleStorageChange);
 });
 
 // --- Watchers ---
@@ -605,6 +630,7 @@ watch(
   messages,
   () => {
     scrollToBottom();
+    saveMessagesToStorage();
   },
   { deep: true },
 );
