@@ -8,17 +8,18 @@ const langbase = new Langbase({
 });
 
 const docNames = [
-  "about.md",
-  "gear.md",
-  "stack.md",
-  "milestones.md",
-  "projects.md",
-  "recommendations.md",
-  "resume.md",
+  ["../frontend/docs", "about.md"],
+  ["../frontend/docs", "gear.md"],
+  ["../frontend/docs", "stack.md"],
+  ["../frontend/docs", "milestones.md"],
+  ["../frontend/docs", "projects.md"],
+  ["../frontend/docs", "recommendations.md"],
+  ["../frontend/docs", "resume.md"],
+  ["./private", "supplementary.md"],
 ];
 
-async function main(docName: string) {
-  const src = path.join(process.cwd(), "../frontend/docs", docName);
+async function main(subpath: string, docName: string) {
+  const src = path.join(process.cwd(), subpath, docName);
 
   const response = await langbase.memories.documents.upload({
     document: fs.readFileSync(src),
@@ -33,6 +34,6 @@ async function main(docName: string) {
 
   console.log(response);
 }
-docNames.forEach((docName) => {
-  main(docName);
+docNames.forEach(([subpath, docName]) => {
+  main(subpath, docName);
 });
