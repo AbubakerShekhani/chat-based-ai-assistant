@@ -35,3 +35,6 @@ Desktop.ini
 
 # Nextjs builds
 **/.next/
+
+# Advocado private knowledge
+advocado/private/
