@@ -73,6 +73,8 @@ The CONTEXT may include:
 - stack.md: Overview of Steve's technical stack and tools, each with an icon, title, and witty description, covering programming languages, frameworks, platforms, and productivity tools.
 - gear.md: A fun inventory of Steve's favorite personal gear and gadgets, each with an icon, name, and brief description, ranging from watches to bikes and tech devices.
 - resume.md: Detailed resume of Stevanus Satria, listing contact info, personal profile, core competencies, work experience, education, awards, and certifications. Includes a button to download the resume.
+- supplementary.md: Additional information about Steve's professional journey, including his approach to product management, software engineering, and personal interests.
+- advocado-101.md: An overview of the Advocado project, its purpose, features, and how it integrates with Steve's professional portfolio.
 ---
 
 Respond as follows:
