@@ -16,7 +16,6 @@ const docNames = [
   ["../frontend/docs", "recommendations.md"],
   ["../frontend/docs", "resume.md"],
   ["./private", "supplementary.md"],
-  ["./private", "advocado-101.md"],
 ];
 
 async function main(subpath: string, docName: string) {
