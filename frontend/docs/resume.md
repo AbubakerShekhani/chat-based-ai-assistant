@@ -72,6 +72,7 @@ API • Postman • Agile • Scrum • Product specification • Design thinkin
 **Senior Product Manager** | Singapore | March 2025 – Present  
 **Product Manager** | Singapore | June 2022 – March 2025
 
+- Led Workato Data Tables general availability launch as Lookup Tables' successor for all Workato users.
 - Stabilized legacy database by reducing maximum query execution time by 96% and freeing up 277GB of storage space.
 - Spearheaded migration of 90% of customers using code connectors to sandboxed execution.
 - Released native XSLT support adopted by 3 high-value customers of US$150K ARR and above.
