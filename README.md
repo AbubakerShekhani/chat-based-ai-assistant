@@ -1,10 +1,10 @@
-# Stevanus Satria's Portfolio (VitePress)
+# Abubaker Shekhani's Portfolio
 
 A modern JAM-stack personal website built with [VitePress](https://vitepress.dev/), [Vue 3](https://vuejs.org/), and [Tailwind CSS v4](https://tailwindcss.com/).
 Home page is manned by GPT-powered advocate agent deployed on [Langbase](https://langbase.com/) and proxied through a [Next.js](https://nextjs.org/) backend.
 Everything is deployed on [Vercel](https://vercel.com/) with [Cloudflare](https://www.cloudflare.com/) as CDN.
 
-**Live Site:** [stevanussatria.com](https://stevanussatria.com)
+**Live Site:** [https://www.abubakershekhani.com/](https://www.abubakershekhani.com/)
 
 ## ✨ Features
 
