@@ -456,7 +456,6 @@ const submitFeedback = async (): Promise<void> => {
       content: "Chat session has ended. Ask me anything to start a new conversation!",
       timestamp: Date.now(),
     });
-    saveMessagesToStorage();
   } catch (error) {
     console.error("Error ending chat:", error);
     messages.value.push({
@@ -464,7 +463,6 @@ const submitFeedback = async (): Promise<void> => {
       content: "Failed to end chat session. Please try again.",
       timestamp: Date.now(),
     });
-    saveMessagesToStorage();
   } finally {
     isEndingChat.value = false;
     showFeedbackModal.value = false;
